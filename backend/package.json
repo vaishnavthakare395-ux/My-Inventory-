@@ -1,0 +1,18 @@
+{
+  "name": "stockflow-backend",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "StockFlow — Firestore rules, indexes and seed/admin scripts.",
+  "scripts": {
+    "seed": "node scripts/seedAdmin.mjs",
+    "seed:live": "node scripts/seedAdmin.mjs",
+    "seed:emulator": "node scripts/seedFirestore.mjs",
+    "import:products": "node scripts/importProductsCsv.mjs",
+    "deploy:rules": "firebase deploy --only firestore",
+    "emulators": "firebase emulators:start --only auth,firestore"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.6.0"
+  }
+}

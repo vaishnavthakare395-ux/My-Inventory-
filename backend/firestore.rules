@@ -1,0 +1,150 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function role() {
+      return userDoc().role;
+    }
+
+    function isAdmin() {
+      return signedIn() && role() == 'admin';
+    }
+
+    function isManagerOrAdmin() {
+      return signedIn() && (role() == 'manager' || role() == 'admin');
+    }
+
+    function isManager() {
+      return signedIn() && role() == 'manager';
+    }
+
+    // Admins and managers can act across every location; a plain user is limited
+    // to the warehouses assigned to them.
+    function canAccessLocation(locationId) {
+      return isManagerOrAdmin() || locationId in userDoc().assignedLocationIds;
+    }
+
+    function managerCanWriteUser() {
+      return isManager()
+        && request.resource.data.role == 'user'
+        && request.resource.data.assignedLocationIds is list
+        && request.resource.data.assignedLocationIds.hasOnly(userDoc().assignedLocationIds)
+        && request.resource.data.keys().hasOnly(['email', 'name', 'role', 'assignedLocationIds', 'updatedAt']);
+    }
+
+    function validQty(qty) {
+      return qty is number && qty >= 0;
+    }
+
+    // Reference data everyone signed in can read; only admins change it.
+    match /locations/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    // App settings (order-source website list, etc.).
+    match /settings/{id} {
+      allow read: if signedIn();
+      allow write: if isAdmin();
+    }
+
+    match /products/{id} {
+      allow read: if signedIn();
+      // Any signed-in staff can register a new product while adding stock.
+      allow create: if signedIn();
+      // Editing/renaming an existing product stays with managers/admins.
+      allow update: if isManagerOrAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Users manage themselves only for reading; managers/admins create+edit accounts.
+    match /users/{uid} {
+      allow read: if signedIn() && (request.auth.uid == uid || isManagerOrAdmin());
+      allow create: if isAdmin() || managerCanWriteUser();
+      allow update: if isAdmin() || (resource.data.role == 'user' && managerCanWriteUser());
+      allow delete: if isAdmin();
+    }
+
+    // Stock is scoped to a warehouse. You can only touch stock at a location you
+    // belong to; admins see everything.
+    match /batch_inventory/{id} {
+      allow read: if signedIn() && canAccessLocation(resource.data.locationId);
+      allow create: if signedIn()
+        && canAccessLocation(request.resource.data.locationId)
+        && request.resource.data.sku is string
+        && request.resource.data.locationId is string
+        && request.resource.data.batchNo is string
+        && validQty(request.resource.data.qty);
+      allow update: if signedIn()
+        && canAccessLocation(resource.data.locationId)
+        && request.resource.data.sku == resource.data.sku
+        && request.resource.data.locationId == resource.data.locationId
+        && request.resource.data.batchNo == resource.data.batchNo
+        && validQty(request.resource.data.qty);
+      allow delete: if isManagerOrAdmin();
+    }
+
+    match /warehouse_transfers/{id} {
+      // Only the source/destination locations (or managers/admins) can see a box.
+      allow read: if signedIn() && (
+        isManagerOrAdmin() ||
+        canAccessLocation(resource.data.fromLocationId) ||
+        canAccessLocation(resource.data.toLocationId)
+      );
+      allow create: if signedIn() && canAccessLocation(request.resource.data.fromLocationId);
+      // Source can update while it owns the box; destination accepts/rejects.
+      allow update: if signedIn() && (
+        canAccessLocation(resource.data.fromLocationId) ||
+        canAccessLocation(resource.data.toLocationId)
+      );
+      allow delete: if isManagerOrAdmin();
+    }
+
+    match /orders/{id} {
+      allow read: if signedIn() && (isManagerOrAdmin() || canAccessLocation(resource.data.locationId));
+      allow create: if signedIn() && canAccessLocation(request.resource.data.locationId) && request.resource.data.qty is number && request.resource.data.qty > 0;
+      allow update: if signedIn() && canAccessLocation(resource.data.locationId);
+      allow delete: if isAdmin();
+    }
+
+    match /returns/{id} {
+      allow read: if signedIn() && (isManagerOrAdmin() || canAccessLocation(resource.data.locationId));
+      allow create: if signedIn() && canAccessLocation(request.resource.data.locationId) && request.resource.data.returnedQty is number && request.resource.data.returnedQty > 0;
+      allow update: if isManagerOrAdmin();
+      allow delete: if isAdmin();
+    }
+
+    match /edit_requests/{id} {
+      allow read: if signedIn();
+      allow create: if signedIn();
+      allow update: if isManagerOrAdmin();
+      allow delete: if isAdmin();
+    }
+
+    // Append-only audit trail. Once written, a ledger row is immutable.
+    // Append-only audit trail; immutable, and you can only append for a location
+    // you belong to.
+    match /stock_ledger/{id} {
+      allow read: if isManagerOrAdmin();
+      allow create: if signedIn() && canAccessLocation(request.resource.data.locationId);
+      allow update, delete: if false;
+    }
+
+    // Per-document counters used to mint transfer/order numbers. Value must stay a
+    // number; only managers/admins can delete one.
+    match /counters/{id} {
+      allow read: if signedIn();
+      allow create, update: if signedIn() && request.resource.data.value is number;
+      allow delete: if isManagerOrAdmin();
+    }
+  }
+}
