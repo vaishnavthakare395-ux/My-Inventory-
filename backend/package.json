@@ -8,11 +8,13 @@
     "seed": "node scripts/seedAdmin.mjs",
     "seed:live": "node scripts/seedAdmin.mjs",
     "seed:emulator": "node scripts/seedFirestore.mjs",
+    "seed:local": "node scripts/seedLocal.mjs",
     "import:products": "node scripts/importProductsCsv.mjs",
     "deploy:rules": "firebase deploy --only firestore",
     "emulators": "firebase emulators:start --only auth,firestore"
   },
   "dependencies": {
+    "firebase": "^12.19.0",
     "firebase-admin": "^12.6.0"
   }
 }

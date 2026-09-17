@@ -11,13 +11,15 @@ import { batchStatus, formatExpiry } from '../lib/fefo'
 export default function Inventory() {
   const { activeLocation } = useWorkspace()
   const { batches, productsBySku, loading, refresh } = useAlerts()
-  const { canManage, profile } = useAuth()
+  const { canManage, isAdmin, profile } = useAuth()
+  const canDelete = canManage && !isAdmin
   const toast = useToast()
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
   const [confirm, setConfirm] = useState(null)
 
   const doRemove = async () => {
+    if (isAdmin) return toast.err('Admins cannot remove products or stock.')
     if (!confirm) return
     try {
       await removeBatch({ batchId: confirm.id, by: profile?.email, reason: 'Removed from inventory' })
@@ -77,12 +79,12 @@ export default function Inventory() {
             <thead>
               <tr>
                 <th>SKU</th><th>Product</th><th>Stock group</th><th>Qty</th><th>Expiry</th><th>Status</th><th>FEFO</th>
-                {canManage && <th></th>}
+                {canDelete && <th></th>}
               </tr>
             </thead>
             <tbody>
-              {loading && <tr><td colSpan={canManage ? 8 : 7} className="empty">Loading stock…</td></tr>}
-              {!loading && rows.length === 0 && <tr><td colSpan={canManage ? 8 : 7} className="empty">No matching stock. Add some on the Scan & Add page.</td></tr>}
+              {loading && <tr><td colSpan={canDelete ? 8 : 7} className="empty">Loading stock…</td></tr>}
+              {!loading && rows.length === 0 && <tr><td colSpan={canDelete ? 8 : 7} className="empty">No matching stock. Add some on the Scan & Add page.</td></tr>}
               {rows.map((r, i) => (
                 <tr key={r.id}>
                   <td className="mono">{r.sku}</td>
@@ -92,7 +94,7 @@ export default function Inventory() {
                   <td>{formatExpiry(r.expiryDate)}</td>
                   <td><StatusBadge tone={r.status.tone}>{r.status.text}</StatusBadge></td>
                   <td>{i === 0 && r.status.days !== null && r.status.days <= 90 ? <StatusBadge tone="info">Dispatch first</StatusBadge> : <span className="faint">—</span>}</td>
-                  {canManage && (
+                  {canDelete && (
                     <td><button className="btn danger sm" onClick={() => setConfirm(r)} title="Remove this batch">Delete</button></td>
                   )}
                 </tr>

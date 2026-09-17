@@ -59,11 +59,10 @@ service cloud.firestore {
 
     match /products/{id} {
       allow read: if signedIn();
-      // Any signed-in staff can register a new product while adding stock.
-      allow create: if signedIn();
-      // Editing/renaming an existing product stays with managers/admins.
-      allow update: if isManagerOrAdmin();
-      allow delete: if isAdmin();
+      // Shop users and managers register products; admin accounts only manage user onboarding.
+      allow create: if signedIn() && !isAdmin();
+      allow update: if signedIn() && !isAdmin();
+      allow delete: if false;
     }
 
     // Users manage themselves only for reading; managers/admins create+edit accounts.

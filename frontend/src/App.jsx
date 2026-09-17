@@ -24,21 +24,21 @@ import Admin from './pages/Admin'
 import Settings from './pages/Settings'
 
 const ALL = [ROLES.ADMIN, ROLES.MANAGER, ROLES.USER]
-const STAFF = [ROLES.ADMIN, ROLES.MANAGER]
+const SHOP_OPERATIONS = [ROLES.MANAGER, ROLES.USER]
 
 const ROUTES = [
-  { path: '/', title: 'Dashboard', allow: ALL, El: Dashboard, end: true },
-  { path: '/inventory', title: 'Inventory', allow: ALL, El: Inventory },
-  { path: '/scan', title: 'Scan & Add', allow: ALL, El: ScanAdd },
-  { path: '/transfers', title: 'Transfers', allow: ALL, El: Transfers },
-  { path: '/receiving', title: 'Receiving', allow: ALL, El: Receiving },
-  { path: '/orders', title: 'Orders', allow: ALL, El: Orders },
-  { path: '/returns', title: 'Returns', allow: ALL, El: Returns },
-  { path: '/approvals', title: 'Approvals', allow: STAFF, El: Approvals },
-  { path: '/analytics', title: 'Analytics', allow: STAFF, El: Analytics },
-  { path: '/reports', title: 'Reports', allow: STAFF, El: Reports },
-  { path: '/users', title: 'Users & Access', allow: STAFF, El: Users },
-  { path: '/admin', title: 'Admin Console', allow: [ROLES.ADMIN], El: Admin },
+  { path: '/', title: 'Dashboard', allow: SHOP_OPERATIONS, El: Dashboard, end: true },
+  { path: '/inventory', title: 'Inventory', allow: SHOP_OPERATIONS, El: Inventory },
+  { path: '/scan', title: 'Scan & Add', allow: SHOP_OPERATIONS, El: ScanAdd },
+  { path: '/transfers', title: 'Transfers', allow: SHOP_OPERATIONS, El: Transfers },
+  { path: '/receiving', title: 'Receiving', allow: SHOP_OPERATIONS, El: Receiving },
+  { path: '/orders', title: 'Orders', allow: SHOP_OPERATIONS, El: Orders },
+  { path: '/returns', title: 'Returns', allow: SHOP_OPERATIONS, El: Returns },
+  { path: '/approvals', title: 'Approvals', allow: [ROLES.MANAGER], El: Approvals },
+  { path: '/analytics', title: 'Analytics', allow: [ROLES.MANAGER], El: Analytics },
+  { path: '/reports', title: 'Reports', allow: [ROLES.MANAGER], El: Reports },
+  { path: '/users', title: 'Shop Onboarding', allow: [ROLES.ADMIN, ROLES.MANAGER], El: Users },
+  { path: '/admin', title: 'Members List', allow: [ROLES.ADMIN], El: Admin },
   { path: '/settings', title: 'Settings', allow: ALL, El: Settings },
 ]
 
@@ -60,7 +60,7 @@ export default function App() {
           <div className="boot-logo-wrap">
             <Logo size={56} />
           </div>
-          <div className="boot-brand">StockFlow</div>
+          <div className="boot-brand">My Inventory</div>
           <div className="boot-sub">Inventory &amp; Orders</div>
           <div className="boot-bar"><span /></div>
           <div className="boot-text">Loading your workspace…</div>
@@ -111,7 +111,7 @@ export default function App() {
                   }
                 />
               ))}
-              <Route path="*" element={<Navigate to="/" replace />} />
+              <Route path="*" element={<Navigate to={role === 'admin' ? '/admin' : '/'} replace />} />
             </Routes>
           </AnimatePresence>
         </main>

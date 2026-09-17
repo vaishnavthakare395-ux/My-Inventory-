@@ -8,10 +8,27 @@ export const ROLES = {
 }
 
 export const ROLE_LABELS = {
-  admin: 'Super Admin',
-  manager: 'Office Manager',
-  user: 'Warehouse User',
+  admin: 'Platform Admin',
+  manager: 'Shop Manager',
+  user: 'Shop User',
 }
+
+export const SHOP_TYPES = [
+  { id: 'pharmacy', label: 'Pharmacy / Medical', icon: '💊' },
+  { id: 'general_store', label: 'General Store / Kirana', icon: '🏪' },
+  { id: 'mart', label: 'Supermarket / Mart', icon: '🛒' },
+  { id: 'grocery', label: 'Grocery & Fresh Produce', icon: '🥦' },
+  { id: 'electronics', label: 'Electronics & Hardware', icon: '⚡' },
+  { id: 'clothing', label: 'Clothing & Apparel', icon: '👕' },
+  { id: 'other', label: 'Other Retail / Wholesale', icon: '📦' },
+]
+
+export const SUBSCRIPTION_PLANS = [
+  { id: '1_month', label: '1 Month', months: 1, price: 499, currency: '₹' },
+  { id: '2_months', label: '2 Months', months: 2, price: 899, currency: '₹' },
+  { id: '6_months', label: '6 Months', months: 6, price: 2499, currency: '₹', badge: 'Popular' },
+  { id: '1_year', label: '1 Year', months: 12, price: 4499, currency: '₹', badge: 'Best Value' },
+]
 
 // Transfer state machine. Each box moves strictly forward through these.
 export const TRANSFER_STATUS = {

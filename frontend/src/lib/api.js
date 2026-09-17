@@ -15,9 +15,10 @@ import {
   increment,
   Timestamp,
   documentId,
+  deleteDoc,
 } from 'firebase/firestore'
 import { initializeApp, deleteApp } from 'firebase/app'
-import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth'
+import { getAuth, createUserWithEmailAndPassword, connectAuthEmulator } from 'firebase/auth'
 import { db, app } from './firebase'
 import { LEDGER_REASONS, TRANSFER_STATUS } from './constants'
 import { fefoSort } from './fefo'
@@ -92,8 +93,14 @@ export async function saveLocation(location) {
       name: location.name,
       code: location.code,
       type: location.type || 'warehouse',
+      shopType: location.shopType || '',
       address: location.address || '',
+      coordinates: location.coordinates || null,
+      mapVerified: !!location.mapVerified,
+      googleMapsUrl: location.googleMapsUrl || '',
+      ownerEmail: location.ownerEmail || '',
       active: location.active !== false,
+      updatedAt: serverTimestamp(),
     },
     { merge: true }
   )
@@ -249,25 +256,140 @@ export async function saveUserProfile(uid, profile) {
       email: profile.email,
       name: profile.name,
       role: profile.role,
+      phone: profile.phone || '',
       assignedLocationIds: profile.assignedLocationIds || [],
+      shopName: profile.shopName || '',
+      shopType: profile.shopType || '',
+      shopLocationId: profile.shopLocationId || '',
+      verifiedAddress: profile.verifiedAddress || '',
+      coordinates: profile.coordinates || null,
+      googleMapsUrl: profile.googleMapsUrl || '',
+      subscriptionDuration: profile.subscriptionDuration || '1_month',
+      subscriptionPlanLabel: profile.subscriptionPlanLabel || '1 Month',
+      subscriptionPrice: profile.subscriptionPrice || 499,
+      subscriptionStartDate: profile.subscriptionStartDate || new Date().toISOString(),
+      subscriptionEndDate: profile.subscriptionEndDate || '',
+      createdAt: profile.createdAt || serverTimestamp(),
       updatedAt: serverTimestamp(),
     },
     { merge: true }
   )
 }
 
-// Creates a brand-new staff login without disturbing the admin's session. We
-// spin up a throwaway secondary auth app, create the staff login there, write
-// their profile, then tear it down.
-export async function createStaffUser({ email, password, name, role, assignedLocationIds }) {
+// Creates a brand-new user login and creates their verified shop location.
+// Spins up a secondary throwaway auth app so admin's session is not disturbed.
+export async function createStaffUser({
+  email,
+  password,
+  name,
+  role = 'user',
+  phone,
+  shopName,
+  shopType,
+  address,
+  coordinates,
+  googleMapsUrl,
+  subscriptionDuration,
+  subscriptionPlanLabel,
+  subscriptionPrice,
+  subscriptionStartDate,
+  subscriptionEndDate,
+  assignedLocationIds = [],
+}) {
+  let finalLocationIds = [...assignedLocationIds]
+  let createdLocationId = null
+
+  // If a shop name is provided, automatically create this shop's location!
+  if (shopName) {
+    createdLocationId = `SHOP_${Date.now().toString(36).toUpperCase()}`
+    const rawCode = (shopName.replace(/[^a-zA-Z0-9]/g, '').slice(0, 6) || 'SHOP').toUpperCase()
+    const locCode = `${rawCode}-${createdLocationId.slice(-4)}`
+
+    await saveLocation({
+      id: createdLocationId,
+      code: locCode,
+      name: shopName,
+      type: 'warehouse',
+      shopType: shopType || 'general_store',
+      address: address || '',
+      coordinates: coordinates || null,
+      mapVerified: true,
+      googleMapsUrl: googleMapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address || shopName)}`,
+      ownerEmail: email.trim(),
+      ownerName: name || '',
+      phone: phone || '',
+      subscriptionDuration: subscriptionDuration || '1_month',
+      subscriptionPlanLabel: subscriptionPlanLabel || '1 Month',
+      subscriptionPrice: subscriptionPrice || 499,
+      subscriptionStartDate: subscriptionStartDate || new Date().toISOString(),
+      subscriptionEndDate: subscriptionEndDate || '',
+      active: true,
+    })
+
+    if (!finalLocationIds.includes(createdLocationId)) {
+      finalLocationIds.push(createdLocationId)
+    }
+  }
+
   const secondary = initializeApp(app.options, `staff-${Date.now()}`)
   try {
     const secAuth = getAuth(secondary)
+    if (import.meta.env.VITE_USE_EMULATORS === 'true') {
+      connectAuthEmulator(secAuth, 'http://127.0.0.1:9099', { disableWarnings: true })
+    }
     const cred = await createUserWithEmailAndPassword(secAuth, email.trim(), password)
-    await saveUserProfile(cred.user.uid, { email: email.trim(), name, role, assignedLocationIds })
+    await saveUserProfile(cred.user.uid, {
+      email: email.trim(),
+      name,
+      role,
+      phone: phone || '',
+      assignedLocationIds: finalLocationIds,
+      shopName: shopName || '',
+      shopType: shopType || '',
+      shopLocationId: createdLocationId || (finalLocationIds[0] || ''),
+      verifiedAddress: address || '',
+      coordinates: coordinates || null,
+      googleMapsUrl: googleMapsUrl || '',
+      subscriptionDuration: subscriptionDuration || '1_month',
+      subscriptionPlanLabel: subscriptionPlanLabel || '1 Month',
+      subscriptionPrice: subscriptionPrice || 499,
+      subscriptionStartDate: subscriptionStartDate || new Date().toISOString(),
+      subscriptionEndDate: subscriptionEndDate || '',
+      createdAt: serverTimestamp(),
+    })
     return cred.user.uid
   } finally {
     await deleteApp(secondary)
+  }
+}
+
+export async function updateMemberSubscription({ uid, locationId, durationId, planLabel, price, endDate }) {
+  if (uid) {
+    await updateDoc(doc(db, 'users', uid), {
+      subscriptionDuration: durationId,
+      subscriptionPlanLabel: planLabel,
+      subscriptionPrice: price,
+      subscriptionEndDate: endDate,
+      updatedAt: serverTimestamp(),
+    })
+  }
+  if (locationId) {
+    await updateDoc(doc(db, 'locations', locationId), {
+      subscriptionDuration: durationId,
+      subscriptionPlanLabel: planLabel,
+      subscriptionPrice: price,
+      subscriptionEndDate: endDate,
+      updatedAt: serverTimestamp(),
+    })
+  }
+}
+
+export async function deleteStaffUser({ uid, locationId }) {
+  if (uid) {
+    await deleteDoc(doc(db, 'users', uid))
+  }
+  if (locationId) {
+    await deleteDoc(doc(db, 'locations', locationId))
   }
 }
 

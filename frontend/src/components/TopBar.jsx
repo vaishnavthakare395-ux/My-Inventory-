@@ -31,7 +31,7 @@ export default function TopBar({ title, onMenu }) {
 
       <Link to="/" className="tb-brand">
         <Logo size={30} />
-        <span className="tb-brand-name">StockFlow</span>
+        <span className="tb-brand-name">My Inventory</span>
       </Link>
 
       <span className="tb-divider" />

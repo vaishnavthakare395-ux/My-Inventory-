@@ -88,6 +88,6 @@ export async function exportWarehouseStock(location) {
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'Stock')
   const stamp = new Date().toISOString().slice(0, 10)
-  XLSX.writeFile(wb, `StockFlow_${location.code || location.name}_${stamp}.xlsx`)
+  XLSX.writeFile(wb, `MyInventory_${location.code || location.name}_${stamp}.xlsx`)
   return data.length
 }

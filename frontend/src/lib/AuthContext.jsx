@@ -64,6 +64,7 @@ export function AuthProvider({ children }) {
     isAdmin: role === ROLES.ADMIN,
     isManager: role === ROLES.MANAGER,
     canManage: role === ROLES.ADMIN || role === ROLES.MANAGER,
+    canAddRemoveProducts: role !== ROLES.ADMIN && (role === ROLES.USER || role === ROLES.MANAGER),
   }
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>

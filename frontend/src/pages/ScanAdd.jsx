@@ -12,7 +12,7 @@ const empty = { sku: '', barcode: '', productName: '', batchNo: '', qty: '', exp
 
 export default function ScanAdd() {
   const { activeLocation } = useWorkspace()
-  const { profile } = useAuth()
+  const { profile, isAdmin } = useAuth()
   const { refresh } = useAlerts()
   const toast = useToast()
 
@@ -80,6 +80,7 @@ export default function ScanAdd() {
   }
 
   const save = async () => {
+    if (isAdmin) return toast.err('Admins cannot add products. Products must be added by the shop user.')
     if (!activeLocation) return toast.err('Select a warehouse first.')
     if (!form.sku) return toast.err('A SKU is required.')
     if (!form.productName && !knownProduct) return toast.err('Enter the product name.')
@@ -121,6 +122,16 @@ export default function ScanAdd() {
           <div className="sub">{activeLocation ? `Adding into ${activeLocation.name}` : 'Choose a warehouse to add stock'}</div>
         </div>
       </div>
+
+      {isAdmin && (
+        <div className="card" style={{ marginBottom: 16, borderLeft: '4px solid var(--accent, #6366f1)', background: 'rgba(99, 102, 241, 0.08)' }}>
+          <div style={{ fontWeight: 600, color: 'var(--accent, #6366f1)' }}>Platform Admin — Product Management Restricted</div>
+          <p className="muted" style={{ fontSize: 13, marginTop: 4 }}>
+            Admin accounts only onboard shops and create user credentials. Admins cannot add or remove products.
+            Products must be added by shop user accounts directly.
+          </p>
+        </div>
+      )}
 
       <button className="scan-hero" onClick={() => setScanOpen(true)}>
         <span className="scan-hero-ic">
@@ -176,8 +187,8 @@ export default function ScanAdd() {
               <input className="input mono" value={form.batchNo} onChange={set('batchNo')} placeholder="leave blank — grouped by expiry automatically" />
             </div>
           </details>
-          <button className="btn green" onClick={save} disabled={busy} style={{ width: '100%', justifyContent: 'center' }}>
-            {busy ? 'Saving…' : 'Save to inventory'}
+          <button className="btn green" onClick={save} disabled={busy || isAdmin} style={{ width: '100%', justifyContent: 'center' }}>
+            {busy ? 'Saving…' : isAdmin ? 'Admin Restricted (Cannot Add Products)' : 'Save to inventory'}
           </button>
         </div>
       </div>

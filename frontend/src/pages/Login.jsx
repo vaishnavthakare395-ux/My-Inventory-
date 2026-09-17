@@ -30,7 +30,7 @@ export default function Login() {
         <aside className="login-aside">
           <div className="la-brand">
             <Logo size={30} />
-            <span>StockFlow</span>
+            <span>My Inventory</span>
           </div>
           <div className="la-hero">
             <h1>Stock truth,<br />across every warehouse.</h1>

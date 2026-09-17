@@ -56,7 +56,7 @@ export default function ScannerModal({ open, onClose, onDetect }) {
             </div>
             {camError && <p className="form-error" style={{ marginTop: 12 }}>{camError}</p>}
             <p className="muted" style={{ fontSize: 12.5, marginTop: 10 }}>
-              Point at a barcode, GS1 2D code, or a StockFlow QR label.
+              Point at a barcode, GS1 2D code, or a QR label.
             </p>
           </div>
         ) : (
