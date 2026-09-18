@@ -12,9 +12,7 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Inventory from './pages/Inventory'
 import ScanAdd from './pages/ScanAdd'
-import Transfers from './pages/Transfers'
-import Receiving from './pages/Receiving'
-import Orders from './pages/Orders'
+import NearExpiry from './pages/NearExpiry'
 import Returns from './pages/Returns'
 import Approvals from './pages/Approvals'
 import Analytics from './pages/Analytics'
@@ -30,9 +28,7 @@ const ROUTES = [
   { path: '/', title: 'Dashboard', allow: SHOP_OPERATIONS, El: Dashboard, end: true },
   { path: '/inventory', title: 'Inventory', allow: SHOP_OPERATIONS, El: Inventory },
   { path: '/scan', title: 'Scan & Add', allow: SHOP_OPERATIONS, El: ScanAdd },
-  { path: '/transfers', title: 'Transfers', allow: SHOP_OPERATIONS, El: Transfers },
-  { path: '/receiving', title: 'Receiving', allow: SHOP_OPERATIONS, El: Receiving },
-  { path: '/orders', title: 'Orders', allow: SHOP_OPERATIONS, El: Orders },
+  { path: '/expiring', title: 'Near Expiry', allow: SHOP_OPERATIONS, El: NearExpiry },
   { path: '/returns', title: 'Returns', allow: SHOP_OPERATIONS, El: Returns },
   { path: '/approvals', title: 'Approvals', allow: [ROLES.MANAGER], El: Approvals },
   { path: '/analytics', title: 'Analytics', allow: [ROLES.MANAGER], El: Analytics },

@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom'
 import { ROLES } from '../lib/constants'
 import {
-  IconDashboard, IconBox, IconScan, IconTransfer, IconReceive, IconCart,
+  IconDashboard, IconBox, IconScan, IconClock,
   IconReturn, IconCheck, IconChart, IconUsers, IconShield, IconSettings,
 } from './icons'
 
@@ -12,9 +12,7 @@ const GROUPS = [
       { to: '/', label: 'Dashboard', Icon: IconDashboard, roles: [ROLES.MANAGER, ROLES.USER], end: true },
       { to: '/inventory', label: 'Inventory', Icon: IconBox, roles: [ROLES.MANAGER, ROLES.USER] },
       { to: '/scan', label: 'Scan & Add', Icon: IconScan, roles: [ROLES.MANAGER, ROLES.USER] },
-      { to: '/transfers', label: 'Transfers', Icon: IconTransfer, roles: [ROLES.MANAGER, ROLES.USER] },
-      { to: '/receiving', label: 'Receiving', Icon: IconReceive, roles: [ROLES.MANAGER, ROLES.USER] },
-      { to: '/orders', label: 'Orders', Icon: IconCart, roles: [ROLES.MANAGER, ROLES.USER] },
+      { to: '/expiring', label: 'Near Expiry', Icon: IconClock, roles: [ROLES.MANAGER, ROLES.USER] },
       { to: '/returns', label: 'Returns', Icon: IconReturn, roles: [ROLES.MANAGER, ROLES.USER] },
     ],
   },
