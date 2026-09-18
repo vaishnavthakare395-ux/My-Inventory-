@@ -73,10 +73,10 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
-    // Stock is scoped to a warehouse. You can only touch stock at a location you
-    // belong to; admins see everything.
+    // Stock is scoped to a warehouse for write operations; signed-in partner shops
+    // can search stock availability across the emergency network.
     match /batch_inventory/{id} {
-      allow read: if signedIn() && canAccessLocation(resource.data.locationId);
+      allow read: if signedIn();
       allow create: if signedIn()
         && canAccessLocation(request.resource.data.locationId)
         && request.resource.data.sku is string
@@ -84,12 +84,27 @@ service cloud.firestore {
         && request.resource.data.batchNo is string
         && validQty(request.resource.data.qty);
       allow update: if signedIn()
-        && canAccessLocation(resource.data.locationId)
+        && (canAccessLocation(resource.data.locationId) || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['qty', 'updatedAt']))
         && request.resource.data.sku == resource.data.sku
         && request.resource.data.locationId == resource.data.locationId
         && request.resource.data.batchNo == resource.data.batchNo
         && validQty(request.resource.data.qty);
       allow delete: if isManagerOrAdmin();
+    }
+
+    // Emergency stock purchases / orders between partner shops.
+    match /emergency_orders/{id} {
+      allow read: if signedIn() && (
+        isManagerOrAdmin() ||
+        canAccessLocation(resource.data.buyerLocationId) ||
+        canAccessLocation(resource.data.sellerLocationId)
+      );
+      allow create: if signedIn() && canAccessLocation(request.resource.data.buyerLocationId);
+      allow update: if signedIn() && (
+        canAccessLocation(resource.data.buyerLocationId) ||
+        canAccessLocation(resource.data.sellerLocationId)
+      );
+      allow delete: if isAdmin();
     }
 
     match /warehouse_transfers/{id} {

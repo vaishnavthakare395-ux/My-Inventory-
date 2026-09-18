@@ -67,6 +67,8 @@ export const LEDGER_REASONS = {
   SOLD: 'sold',
   RETURN_IN: 'return_in',
   ADJUST: 'adjust',
+  EMERGENCY_OUT: 'emergency_out',
+  EMERGENCY_IN: 'emergency_in',
 }
 
 // Expiry windows in days. Used by both alerts and inventory colouring.

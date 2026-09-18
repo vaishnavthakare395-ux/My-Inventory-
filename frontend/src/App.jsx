@@ -13,6 +13,7 @@ import Dashboard from './pages/Dashboard'
 import Inventory from './pages/Inventory'
 import ScanAdd from './pages/ScanAdd'
 import NearExpiry from './pages/NearExpiry'
+import EmergencyRequirement from './pages/EmergencyRequirement'
 import Returns from './pages/Returns'
 import Approvals from './pages/Approvals'
 import Analytics from './pages/Analytics'
@@ -29,6 +30,7 @@ const ROUTES = [
   { path: '/inventory', title: 'Inventory', allow: SHOP_OPERATIONS, El: Inventory },
   { path: '/scan', title: 'Scan & Add', allow: SHOP_OPERATIONS, El: ScanAdd },
   { path: '/expiring', title: 'Near Expiry', allow: SHOP_OPERATIONS, El: NearExpiry },
+  { path: '/emergency-requirement', title: 'Emergency Requirement', allow: SHOP_OPERATIONS, El: EmergencyRequirement },
   { path: '/returns', title: 'Returns', allow: SHOP_OPERATIONS, El: Returns },
   { path: '/approvals', title: 'Approvals', allow: [ROLES.MANAGER], El: Approvals },
   { path: '/analytics', title: 'Analytics', allow: [ROLES.MANAGER], El: Analytics },
