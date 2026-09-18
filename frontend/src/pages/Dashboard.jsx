@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useAuth } from '../lib/AuthContext'
+import { useWorkspace } from '../lib/WorkspaceContext'
 import { useAlerts } from '../lib/AlertsContext'
 import { stockByLocation } from '../lib/api'
-import WarehouseNetwork3D from '../components/WarehouseNetwork3D'
+import NearbyShopsMap from '../components/NearbyShopsMap'
 
 export default function Dashboard() {
   const { profile, locations, myLocationIds } = useAuth()
+  const { activeLocation } = useWorkspace()
   const { alerts, counts, batches } = useAlerts()
   const [totals, setTotals] = useState({})
 
@@ -22,7 +24,7 @@ export default function Dashboard() {
       <div className="page-head">
         <div>
           <h1>Welcome back{profile?.name ? `, ${profile.name}` : ''}</h1>
-          <div className="sub">Live across your warehouses.</div>
+          <div className="sub">{activeLocation ? activeLocation.name : 'Your shop workspace'}</div>
         </div>
       </div>
 
@@ -34,10 +36,15 @@ export default function Dashboard() {
       </div>
 
       <div className="grid cols-2">
-        <div className="card tint-green">
-          <h3>Warehouse network</h3>
-          <div className="sub" style={{ marginBottom: 8 }}>Live stock by location.</div>
-          <WarehouseNetwork3D locations={locations} stockByLocation={totals} alerts={alertLocs} />
+        <div className="card">
+          <div className="row spread" style={{ marginBottom: 4 }}>
+            <h3 style={{ margin: 0 }}>Associated Shops in Your Area</h3>
+            <span className="badge sm purple">10 km Network</span>
+          </div>
+          <div className="sub" style={{ marginBottom: 12 }}>
+            Connected partner shops within 10 km radius of your location.
+          </div>
+          <NearbyShopsMap locations={locations} currentShop={activeLocation} currentProfile={profile} />
         </div>
 
         <div className="card">
