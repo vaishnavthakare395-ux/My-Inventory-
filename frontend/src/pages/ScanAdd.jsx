@@ -97,19 +97,19 @@ export default function ScanAdd() {
     }
   }
 
-  // Pricing Calculations & 75% Rule Validation
+  // Pricing Calculations & 60% Rule Validation
   const bp = parseFloat(form.buyingPrice) || 0
   const sp = parseFloat(form.sellingPrice) || 0
   const ep = parseFloat(form.emergencyPrice) || 0
 
   const normalProfit = sp > bp ? sp - bp : 0
   const emergencyProfit = ep > bp ? ep - bp : 0
-  const maxEmergencyProfitAllowed = normalProfit > 0 ? 0.75 * normalProfit : 0
+  const maxEmergencyProfitAllowed = normalProfit > 0 ? 0.60 * normalProfit : 0
   const maxEmergencyPriceAllowed = normalProfit > 0 ? bp + maxEmergencyProfitAllowed : bp
 
   const hasAllPrices = bp > 0 && sp > 0 && ep > 0
   const isSpValid = sp > bp
-  // Profit made by emergency price must be STRICTLY LESS than 75% of profit by selling price
+  // Profit made by emergency price must be STRICTLY LESS than 60% of profit by selling price
   const isEmergencyProfitValid = hasAllPrices && isSpValid && ep >= bp && emergencyProfit < maxEmergencyProfitAllowed
   const isEmergencyProfitExceeded = hasAllPrices && isSpValid && emergencyProfit >= maxEmergencyProfitAllowed
 
@@ -125,7 +125,7 @@ export default function ScanAdd() {
     if (!sp || sp <= bp) return toast.err('Selling Price must be greater than Buying Price.')
     if (!ep || ep < bp) return toast.err('Emergency Price cannot be lower than Buying Price.')
     if (emergencyProfit >= maxEmergencyProfitAllowed) {
-      return toast.err(`Emergency profit (₹${emergencyProfit.toFixed(2)}) must be less than 75% of selling profit (₹${maxEmergencyProfitAllowed.toFixed(2)}).`)
+      return toast.err(`Emergency profit (₹${emergencyProfit.toFixed(2)}) must be less than 60% of selling profit (₹${maxEmergencyProfitAllowed.toFixed(2)}).`)
     }
 
     const batchNo = form.batchNo.trim() || (form.expiryDate ? `EXP-${form.expiryDate.slice(0, 7)}` : 'DEFAULT')
@@ -241,11 +241,11 @@ export default function ScanAdd() {
           </div>
         </div>
 
-        {/* Step 3: Mandatory Pricing with 75% Profit Cap */}
+        {/* Step 3: Mandatory Pricing with 60% Profit Cap */}
         <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
           <div className="row spread">
             <h3 style={{ margin: 0 }}><span className="step-n">3</span> Pricing &amp; Emergency Price</h3>
-            <span className="badge purple sm">75% Cap Rule</span>
+            <span className="badge purple sm">60% Cap Rule</span>
           </div>
 
           <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
@@ -295,7 +295,7 @@ export default function ScanAdd() {
                     className="btn ghost sm"
                     style={{ fontSize: 11, padding: '2px 8px', borderColor: 'var(--border)' }}
                     onClick={() => setForm((prev) => ({ ...prev, emergencyPrice: (maxEmergencyPriceAllowed - 0.01).toFixed(2) }))}
-                    title="Auto-fill with maximum price allowed under the 75% profit rule"
+                    title="Auto-fill with maximum price allowed under the 60% profit rule"
                   >
                     ⚡ Set Max: ₹{(maxEmergencyPriceAllowed - 0.01).toFixed(2)}
                   </button>
@@ -343,18 +343,18 @@ export default function ScanAdd() {
                 {isEmergencyProfitExceeded ? (
                   <div>
                     <div style={{ fontWeight: 700, marginBottom: 4 }}>
-                      ⚠️ 75% Profit Rule Exceeded:
+                      ⚠️ 60% Profit Rule Exceeded:
                     </div>
                     <div>
                       • Normal Profit: <b>₹{normalProfit.toFixed(2)}</b> (₹{sp} - ₹{bp})<br />
-                      • 75% Profit Cap: <b>₹{maxEmergencyProfitAllowed.toFixed(2)}</b><br />
+                      • 60% Profit Cap: <b>₹{maxEmergencyProfitAllowed.toFixed(2)}</b><br />
                       • Your Emergency Profit: <b>₹{emergencyProfit.toFixed(2)}</b> ({((emergencyProfit / normalProfit) * 100).toFixed(1)}% of normal profit)<br />
-                      Emergency profit must be <b>strictly less than 75%</b>. Maximum allowed emergency price is <b>₹{(maxEmergencyPriceAllowed - 0.01).toFixed(2)}</b>.
+                      Emergency profit must be <b>strictly less than 60%</b>. Maximum allowed emergency price is <b>₹{(maxEmergencyPriceAllowed - 0.01).toFixed(2)}</b>.
                     </div>
                   </div>
                 ) : isEmergencyProfitValid ? (
                   <div>
-                    ✓ <b>Rule Satisfied:</b> Emergency profit is <b>₹{emergencyProfit.toFixed(2)}</b> ({((emergencyProfit / normalProfit) * 100).toFixed(1)}% of normal profit ₹{normalProfit.toFixed(2)}), which is strictly under the 75% cap (₹{maxEmergencyProfitAllowed.toFixed(2)}).
+                    ✓ <b>Rule Satisfied:</b> Emergency profit is <b>₹{emergencyProfit.toFixed(2)}</b> ({((emergencyProfit / normalProfit) * 100).toFixed(1)}% of normal profit ₹{normalProfit.toFixed(2)}), which is strictly under the 60% cap (₹{maxEmergencyProfitAllowed.toFixed(2)}).
                   </div>
                 ) : sp <= bp ? (
                   <div style={{ color: '#f59e0b' }}>

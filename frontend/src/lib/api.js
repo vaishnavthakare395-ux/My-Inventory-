@@ -436,8 +436,8 @@ export async function saveProduct(product) {
   if (bp > 0 && sp > bp && ep > 0) {
     const normalProfit = sp - bp
     const emergencyProfit = ep - bp
-    if (emergencyProfit >= 0.75 * normalProfit) {
-      throw new Error(`Emergency profit (₹${emergencyProfit.toFixed(2)}) must be strictly less than 75% of normal profit (₹${(0.75 * normalProfit).toFixed(2)}).`)
+    if (emergencyProfit >= 0.60 * normalProfit) {
+      throw new Error(`Emergency profit (₹${emergencyProfit.toFixed(2)}) must be strictly less than 60% of normal profit (₹${(0.60 * normalProfit).toFixed(2)}).`)
     }
   }
 
@@ -512,8 +512,8 @@ export async function addStock({ sku, locationId, batchNo, qty, expiryDate, by, 
   if (bPrice > 0 && sPrice > bPrice && ePrice > 0) {
     const normalProfit = sPrice - bPrice
     const emergencyProfit = ePrice - bPrice
-    if (emergencyProfit >= 0.75 * normalProfit) {
-      throw new Error(`Emergency profit (₹${emergencyProfit.toFixed(2)}) must be strictly less than 75% of normal profit (₹${(0.75 * normalProfit).toFixed(2)}).`)
+    if (emergencyProfit >= 0.60 * normalProfit) {
+      throw new Error(`Emergency profit (₹${emergencyProfit.toFixed(2)}) must be strictly less than 60% of normal profit (₹${(0.60 * normalProfit).toFixed(2)}).`)
     }
   }
 
@@ -1090,8 +1090,8 @@ export async function searchEmergencyStock({ queryText = '', userLocationId }) {
     let emergencyPrice = b.emergencyPrice || prod.emergencyPrice || 0
     if (!emergencyPrice && sellingPrice && buyingPrice && sellingPrice > buyingPrice) {
       const normalProfit = sellingPrice - buyingPrice
-      // Strictly less than 75% of profit (70% margin)
-      emergencyPrice = Math.floor((buyingPrice + normalProfit * 0.7) * 100) / 100
+      // Strictly less than 60% of profit (50% margin)
+      emergencyPrice = Math.floor((buyingPrice + normalProfit * 0.5) * 100) / 100
     }
 
     results.push({
