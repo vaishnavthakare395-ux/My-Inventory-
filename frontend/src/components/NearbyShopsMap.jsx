@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState, useMemo } from 'react'
+import { useEffect, useRef, useState, useMemo } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { SHOP_TYPES } from '../lib/constants'
@@ -68,10 +68,10 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
     return found ? found.icon : '🏪'
   }
 
-  // Calculate distance for all locations
+  // Calculate distance for all locations associated with us
   const parsedShops = useMemo(() => {
     return locations
-      .filter((loc) => loc.coordinates?.lat && loc.coordinates?.lon)
+      .filter((loc) => (loc.ownerEmail || loc.mapVerified) && loc.active !== false && loc.coordinates?.lat && loc.coordinates?.lon)
       .map((loc) => {
         const lat = parseFloat(loc.coordinates.lat)
         const lon = parseFloat(loc.coordinates.lon)

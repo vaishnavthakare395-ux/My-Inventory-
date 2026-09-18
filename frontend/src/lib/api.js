@@ -82,7 +82,8 @@ function normaliseTransferItems(items = []) {
 
 export async function listLocations() {
   const snap = await getDocs(query(col('locations'), orderBy('name')))
-  return snapToRows(snap)
+  // Only return active shops associated with registered member accounts
+  return snapToRows(snap).filter((l) => (l.ownerEmail || l.mapVerified) && l.active !== false)
 }
 
 export async function saveLocation(location) {
@@ -1044,13 +1045,20 @@ export async function searchEmergencyStock({ queryText = '', userLocationId }) {
   ])
 
   const productMap = Object.fromEntries(products.map((p) => [p.sku, p]))
-  const locMap = Object.fromEntries(snapToRows(locSnap).map((l) => [l.id, l]))
+  const locMap = Object.fromEntries(
+    snapToRows(locSnap)
+      .filter((l) => (l.ownerEmail || l.mapVerified) && l.active !== false)
+      .map((l) => [l.id, l])
+  )
 
   // 4. Enrich and filter
   const results = []
   for (const b of otherBatches) {
+    const loc = locMap[b.locationId]
+    // Strictly skip any batch belonging to a shop not associated with our network
+    if (!loc) continue
+
     const prod = productMap[b.sku] || {}
-    const loc = locMap[b.locationId] || {}
 
     if (cleanQ) {
       const haystack = `${b.sku} ${prod.productName || ''} ${prod.category || ''} ${prod.brand || ''} ${b.batchNo} ${loc.name || ''}`.toLowerCase()
