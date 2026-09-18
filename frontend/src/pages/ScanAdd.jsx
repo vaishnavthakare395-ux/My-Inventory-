@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useWorkspace } from '../lib/WorkspaceContext'
 import { useAuth } from '../lib/AuthContext'
 import { useAlerts } from '../lib/AlertsContext'
@@ -287,10 +287,18 @@ export default function ScanAdd() {
             </div>
 
             <div className="field">
-              <div className="row spread">
+              <div className="row spread" style={{ alignItems: 'center' }}>
                 <label>3. Emergency Price (Neighbor Shops) *</label>
                 {maxEmergencyProfitAllowed > 0 && (
-                  <span className="faint" style={{ fontSize: 11 }}>Max allowed: ₹{(maxEmergencyPriceAllowed - 0.01).toFixed(2)}</span>
+                  <button
+                    type="button"
+                    className="btn ghost sm"
+                    style={{ fontSize: 11, padding: '2px 8px', borderColor: 'var(--border)' }}
+                    onClick={() => setForm((prev) => ({ ...prev, emergencyPrice: (maxEmergencyPriceAllowed - 0.01).toFixed(2) }))}
+                    title="Auto-fill with maximum price allowed under the 75% profit rule"
+                  >
+                    ⚡ Set Max: ₹{(maxEmergencyPriceAllowed - 0.01).toFixed(2)}
+                  </button>
                 )}
               </div>
               <div className="row" style={{ alignItems: 'center', gap: 6 }}>
@@ -300,7 +308,8 @@ export default function ScanAdd() {
                   type="number"
                   step="0.01"
                   min="0"
-                  placeholder="e.g. 160"
+                  max={maxEmergencyPriceAllowed > 0 ? (maxEmergencyPriceAllowed - 0.01).toFixed(2) : undefined}
+                  placeholder={maxEmergencyPriceAllowed > 0 ? `Max ₹${(maxEmergencyPriceAllowed - 0.01).toFixed(2)}` : 'e.g. 160'}
                   value={form.emergencyPrice}
                   onChange={set('emergencyPrice')}
                   style={isEmergencyProfitExceeded ? { borderColor: '#ef4444', background: 'rgba(239, 68, 68, 0.08)' } : {}}
@@ -311,7 +320,7 @@ export default function ScanAdd() {
             {/* Profit & Validation Indicator */}
             {hasAllPrices && (
               <div style={{
-                padding: '8px 10px',
+                padding: '10px 12px',
                 borderRadius: 6,
                 fontSize: 12,
                 marginTop: 2,
@@ -333,11 +342,19 @@ export default function ScanAdd() {
               }}>
                 {isEmergencyProfitExceeded ? (
                   <div>
-                    <b>Violation:</b> Emergency profit (₹{emergencyProfit.toFixed(2)}) must be <b>less than 75%</b> of normal profit (₹{maxEmergencyProfitAllowed.toFixed(2)}). Maximum allowed emergency price is <b>₹{(maxEmergencyPriceAllowed - 0.01).toFixed(2)}</b>.
+                    <div style={{ fontWeight: 700, marginBottom: 4 }}>
+                      ⚠️ 75% Profit Rule Exceeded:
+                    </div>
+                    <div>
+                      • Normal Profit: <b>₹{normalProfit.toFixed(2)}</b> (₹{sp} - ₹{bp})<br />
+                      • 75% Profit Cap: <b>₹{maxEmergencyProfitAllowed.toFixed(2)}</b><br />
+                      • Your Emergency Profit: <b>₹{emergencyProfit.toFixed(2)}</b> ({((emergencyProfit / normalProfit) * 100).toFixed(1)}% of normal profit)<br />
+                      Emergency profit must be <b>strictly less than 75%</b>. Maximum allowed emergency price is <b>₹{(maxEmergencyPriceAllowed - 0.01).toFixed(2)}</b>.
+                    </div>
                   </div>
                 ) : isEmergencyProfitValid ? (
                   <div>
-                    ✓ <b>Valid:</b> Emergency profit is ₹{emergencyProfit.toFixed(2)} (which is {normalProfit > 0 ? ((emergencyProfit / normalProfit) * 100).toFixed(1) : 0}% of normal profit, under 75% limit).
+                    ✓ <b>Rule Satisfied:</b> Emergency profit is <b>₹{emergencyProfit.toFixed(2)}</b> ({((emergencyProfit / normalProfit) * 100).toFixed(1)}% of normal profit ₹{normalProfit.toFixed(2)}), which is strictly under the 75% cap (₹{maxEmergencyProfitAllowed.toFixed(2)}).
                   </div>
                 ) : sp <= bp ? (
                   <div style={{ color: '#f59e0b' }}>

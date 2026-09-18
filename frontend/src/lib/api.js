@@ -429,6 +429,18 @@ export async function findProduct({ sku, barcode }) {
 
 export async function saveProduct(product) {
   const id = product.sku
+  const bp = Number(product.buyingPrice) || 0
+  const sp = Number(product.sellingPrice) || 0
+  const ep = Number(product.emergencyPrice) || 0
+
+  if (bp > 0 && sp > bp && ep > 0) {
+    const normalProfit = sp - bp
+    const emergencyProfit = ep - bp
+    if (emergencyProfit >= 0.75 * normalProfit) {
+      throw new Error(`Emergency profit (₹${emergencyProfit.toFixed(2)}) must be strictly less than 75% of normal profit (₹${(0.75 * normalProfit).toFixed(2)}).`)
+    }
+  }
+
   await setDoc(
     doc(db, 'products', id),
     {
@@ -440,9 +452,9 @@ export async function saveProduct(product) {
       altVendor1: product.altVendor1 || '',
       altVendor2: product.altVendor2 || '',
       reorderLevel: Number(product.reorderLevel) || 0,
-      buyingPrice: Number(product.buyingPrice) || 0,
-      sellingPrice: Number(product.sellingPrice) || 0,
-      emergencyPrice: Number(product.emergencyPrice) || 0,
+      buyingPrice: bp,
+      sellingPrice: sp,
+      emergencyPrice: ep,
       status: product.status || 'Active',
     },
     { merge: true }
@@ -496,6 +508,14 @@ export async function addStock({ sku, locationId, batchNo, qty, expiryDate, by, 
   const bPrice = Number(buyingPrice) || 0
   const sPrice = Number(sellingPrice) || 0
   const ePrice = Number(emergencyPrice) || 0
+
+  if (bPrice > 0 && sPrice > bPrice && ePrice > 0) {
+    const normalProfit = sPrice - bPrice
+    const emergencyProfit = ePrice - bPrice
+    if (emergencyProfit >= 0.75 * normalProfit) {
+      throw new Error(`Emergency profit (₹${emergencyProfit.toFixed(2)}) must be strictly less than 75% of normal profit (₹${(0.75 * normalProfit).toFixed(2)}).`)
+    }
+  }
 
   await runTransaction(db, async (tx) => {
     const existing = await tx.get(ref)
@@ -1068,8 +1088,10 @@ export async function searchEmergencyStock({ queryText = '', userLocationId }) {
     const buyingPrice = b.buyingPrice || prod.buyingPrice || 0
     const sellingPrice = b.sellingPrice || prod.sellingPrice || 0
     let emergencyPrice = b.emergencyPrice || prod.emergencyPrice || 0
-    if (!emergencyPrice && sellingPrice) {
-      emergencyPrice = Math.round(sellingPrice * 0.85)
+    if (!emergencyPrice && sellingPrice && buyingPrice && sellingPrice > buyingPrice) {
+      const normalProfit = sellingPrice - buyingPrice
+      // Strictly less than 75% of profit (70% margin)
+      emergencyPrice = Math.floor((buyingPrice + normalProfit * 0.7) * 100) / 100
     }
 
     results.push({
