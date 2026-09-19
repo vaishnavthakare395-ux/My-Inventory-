@@ -107,6 +107,14 @@ service cloud.firestore {
       allow delete: if isAdmin();
     }
 
+    // Customer bills / POS sales invoices generated at shop
+    match /bills/{id} {
+      allow read: if signedIn() && (isManagerOrAdmin() || canAccessLocation(resource.data.locationId));
+      allow create: if signedIn() && canAccessLocation(request.resource.data.locationId);
+      allow update: if isManagerOrAdmin();
+      allow delete: if isAdmin();
+    }
+
     match /warehouse_transfers/{id} {
       // Only the source/destination locations (or managers/admins) can see a box.
       allow read: if signedIn() && (

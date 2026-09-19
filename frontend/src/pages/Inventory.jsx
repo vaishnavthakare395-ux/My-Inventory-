@@ -47,13 +47,49 @@ export default function Inventory() {
   }, [batches, productsBySku, search, filter])
 
   const totalUnits = rows.reduce((s, r) => s + (r.qty || 0), 0)
+  const totalCostValue = rows.reduce((s, r) => {
+    const bp = r.buyingPrice || r.product.buyingPrice || 0
+    return s + bp * (r.qty || 0)
+  }, 0)
+  const totalRetailValue = rows.reduce((s, r) => {
+    const sp = r.sellingPrice || r.product.sellingPrice || 0
+    return s + sp * (r.qty || 0)
+  }, 0)
+  const totalProjectedProfit = totalRetailValue - totalCostValue
 
   return (
     <div className="page">
       <div className="page-head">
         <div>
           <h1>Inventory</h1>
-          <div className="sub">{activeLocation ? activeLocation.name : 'All locations'} · live stock (FEFO order)</div>
+          <div className="sub">{activeLocation ? activeLocation.name : 'All locations'} · live stock & pricing (FEFO order)</div>
+        </div>
+      </div>
+
+      {/* Inventory Valuation & Pricing Summary Cards */}
+      <div className="grid-3" style={{ marginBottom: 16 }}>
+        <div className="card" style={{ padding: '14px 18px' }}>
+          <div className="faint" style={{ fontSize: 12, fontWeight: 600, textTransform: 'uppercase' }}>Total Stock Cost (BP)</div>
+          <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4, color: 'var(--text)' }}>
+            ₹{totalCostValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
+          <div className="faint" style={{ fontSize: 11.5, marginTop: 2 }}>{totalUnits.toLocaleString()} total units on shelf</div>
+        </div>
+        <div className="card" style={{ padding: '14px 18px' }}>
+          <div className="faint" style={{ fontSize: 12, fontWeight: 600, textTransform: 'uppercase' }}>Total Retail Value (SP)</div>
+          <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4, color: 'var(--accent, #6366f1)' }}>
+            ₹{totalRetailValue.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
+          <div className="faint" style={{ fontSize: 11.5, marginTop: 2 }}>Expected customer sales revenue</div>
+        </div>
+        <div className="card" style={{ padding: '14px 18px' }}>
+          <div className="faint" style={{ fontSize: 12, fontWeight: 600, textTransform: 'uppercase' }}>Projected Retail Profit</div>
+          <div style={{ fontSize: 22, fontWeight: 700, marginTop: 4, color: '#22c55e' }}>
+            +₹{totalProjectedProfit.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </div>
+          <div className="faint" style={{ fontSize: 11.5, marginTop: 2 }}>
+            Overall margin: {totalRetailValue > 0 ? ((totalProjectedProfit / totalRetailValue) * 100).toFixed(1) : 0}%
+          </div>
         </div>
       </div>
 
@@ -78,27 +114,69 @@ export default function Inventory() {
           <table className="t">
             <thead>
               <tr>
-                <th>SKU</th><th>Product</th><th>Stock group</th><th>Qty</th><th>Expiry</th><th>Status</th><th>FEFO</th>
+                <th>SKU</th>
+                <th>Product</th>
+                <th>Stock group</th>
+                <th>Qty</th>
+                <th>Buying (BP)</th>
+                <th>Selling (SP)</th>
+                <th>Emergency (EP)</th>
+                <th>Profit / Margin</th>
+                <th>Expiry</th>
+                <th>Status</th>
+                <th>FEFO</th>
                 {canDelete && <th></th>}
               </tr>
             </thead>
             <tbody>
-              {loading && <tr><td colSpan={canDelete ? 8 : 7} className="empty">Loading stock…</td></tr>}
-              {!loading && rows.length === 0 && <tr><td colSpan={canDelete ? 8 : 7} className="empty">No matching stock. Add some on the Scan & Add page.</td></tr>}
-              {rows.map((r, i) => (
-                <tr key={r.id}>
-                  <td className="mono">{r.sku}</td>
-                  <td>{r.product.productName || '—'}</td>
-                  <td className="mono">{r.batchNo}</td>
-                  <td>{r.qty}</td>
-                  <td>{formatExpiry(r.expiryDate)}</td>
-                  <td><StatusBadge tone={r.status.tone}>{r.status.text}</StatusBadge></td>
-                  <td>{i === 0 && r.status.days !== null && r.status.days <= 90 ? <StatusBadge tone="info">Dispatch first</StatusBadge> : <span className="faint">—</span>}</td>
-                  {canDelete && (
-                    <td><button className="btn danger sm" onClick={() => setConfirm(r)} title="Remove this batch">Delete</button></td>
-                  )}
-                </tr>
-              ))}
+              {loading && <tr><td colSpan={canDelete ? 12 : 11} className="empty">Loading stock…</td></tr>}
+              {!loading && rows.length === 0 && <tr><td colSpan={canDelete ? 12 : 11} className="empty">No matching stock. Add some on the Scan & Add page.</td></tr>}
+              {rows.map((r, i) => {
+                const bp = Number(r.buyingPrice || r.product.buyingPrice) || 0
+                const sp = Number(r.sellingPrice || r.product.sellingPrice) || 0
+                const ep = Number(r.emergencyPrice || r.product.emergencyPrice) || 0
+                const profit = sp > bp ? sp - bp : 0
+                const margin = sp > 0 ? Math.round((profit / sp) * 100) : 0
+
+                return (
+                  <tr key={r.id}>
+                    <td className="mono">{r.sku}</td>
+                    <td>
+                      <div style={{ fontWeight: 600 }}>{r.product.productName || '—'}</div>
+                      {r.product.brand && <div className="faint" style={{ fontSize: 11 }}>{r.product.brand} · {r.product.category || 'General'}</div>}
+                    </td>
+                    <td className="mono">{r.batchNo}</td>
+                    <td>
+                      <b>{r.qty}</b>
+                    </td>
+                    <td className="mono">
+                      {bp > 0 ? `₹${bp.toFixed(2)}` : <span className="faint">—</span>}
+                    </td>
+                    <td className="mono" style={{ fontWeight: 600, color: 'var(--text)' }}>
+                      {sp > 0 ? `₹${sp.toFixed(2)}` : <span className="faint">—</span>}
+                    </td>
+                    <td className="mono" style={{ color: '#22c55e', fontWeight: 600 }}>
+                      {ep > 0 ? `₹${ep.toFixed(2)}` : <span className="faint">—</span>}
+                    </td>
+                    <td>
+                      {sp > bp && bp > 0 ? (
+                        <div className="row" style={{ gap: 4, alignItems: 'center' }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, color: '#22c55e' }}>+₹{profit.toFixed(2)}</span>
+                          <span className="badge green sm" style={{ fontSize: 10, padding: '1px 5px' }}>{margin}%</span>
+                        </div>
+                      ) : (
+                        <span className="faint">—</span>
+                      )}
+                    </td>
+                    <td>{formatExpiry(r.expiryDate)}</td>
+                    <td><StatusBadge tone={r.status.tone}>{r.status.text}</StatusBadge></td>
+                    <td>{i === 0 && r.status.days !== null && r.status.days <= 90 ? <StatusBadge tone="info">Dispatch first</StatusBadge> : <span className="faint">—</span>}</td>
+                    {canDelete && (
+                      <td><button className="btn danger sm" onClick={() => setConfirm(r)} title="Remove this batch">Delete</button></td>
+                    )}
+                  </tr>
+                )
+              })}
             </tbody>
           </table>
         </div>

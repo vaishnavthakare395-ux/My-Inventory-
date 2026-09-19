@@ -1215,3 +1215,141 @@ export async function listEmergencyOrders(locationId) {
   return all.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0))
 }
 
+/* ---------------- customer bills / POS sales ---------------- */
+
+export async function createBill({
+  locationId,
+  shopName,
+  shopAddress,
+  shopPhone,
+  items,
+  customerName,
+  customerPhone,
+  paymentMethod,
+  discount = 0,
+  notes = '',
+  by,
+}) {
+  if (!locationId || !items || !items.length) {
+    throw new Error('Shop location and at least one item are required to generate a bill.')
+  }
+
+  // Calculate totals
+  const totalQty = items.reduce((s, it) => s + (Number(it.qty) || 0), 0)
+  const subtotal = items.reduce((s, it) => s + (Number(it.subtotal) || 0), 0)
+  const finalDiscount = Number(discount) || 0
+  const grandTotal = Math.max(0, Math.round((subtotal - finalDiscount) * 100) / 100)
+
+  // Generate unique invoice number: INV-YYYYMMDD-XXXX
+  const now = new Date()
+  const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '')
+  const randomSuffix = Math.floor(1000 + Math.random() * 9000)
+  const invoiceNo = `INV-${dateStr}-${randomSuffix}`
+
+  const billRef = doc(col('bills'))
+
+  await runTransaction(db, async (tx) => {
+    // 1. Verify stock availability for all line items
+    const batchSnaps = []
+    for (const it of items) {
+      if (!it.batchId) throw new Error(`Missing batch reference for ${it.productName || it.sku}`)
+      const bRef = doc(db, 'batch_inventory', it.batchId)
+      const snap = await tx.get(bRef)
+      if (!snap.exists()) {
+        throw new Error(`Batch "${it.batchNo || it.sku}" was not found in inventory.`)
+      }
+      const curQty = snap.data().qty || 0
+      if (curQty < it.qty) {
+        throw new Error(`Insufficient stock for ${it.productName || it.sku}. Only ${curQty} units left in stock.`)
+      }
+      batchSnaps.push({ snap, ref: bRef, item: it })
+    }
+
+    // 2. Atomically deduct inventory & record audit ledger
+    for (const { ref: bRef, item: it } of batchSnaps) {
+      tx.update(bRef, {
+        qty: increment(-it.qty),
+        updatedAt: serverTimestamp(),
+      })
+
+      writeLedger(tx, {
+        reason: LEDGER_REASONS.SOLD,
+        sku: it.sku,
+        locationId,
+        batchNo: it.batchNo || 'DEFAULT',
+        delta: -it.qty,
+        by: by || 'pos-cashier',
+        note: `Customer sale · Invoice #${invoiceNo}`,
+        ref: billRef.id,
+      })
+    }
+
+    // 3. Save the bill record
+    tx.set(billRef, {
+      id: billRef.id,
+      invoiceNo,
+      locationId,
+      shopName: shopName || '',
+      shopAddress: shopAddress || '',
+      shopPhone: shopPhone || '',
+      customerName: customerName ? customerName.trim() : 'Walk-in Customer',
+      customerPhone: customerPhone ? customerPhone.trim() : '',
+      paymentMethod: paymentMethod || 'cash',
+      items: items.map((it) => ({
+        batchId: it.batchId,
+        sku: it.sku,
+        productName: it.productName || it.sku,
+        batchNo: it.batchNo || '',
+        qty: Number(it.qty),
+        unitPrice: Number(it.unitPrice) || 0,
+        buyingPrice: Number(it.buyingPrice) || 0,
+        subtotal: Number(it.subtotal) || 0,
+      })),
+      totalQty,
+      subtotal,
+      discount: finalDiscount,
+      grandTotal,
+      notes: notes || '',
+      createdBy: by || '',
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    })
+  })
+
+  return {
+    id: billRef.id,
+    invoiceNo,
+    locationId,
+    shopName,
+    shopAddress,
+    shopPhone,
+    totalQty,
+    subtotal,
+    discount: finalDiscount,
+    grandTotal,
+    items,
+    customerName: customerName ? customerName.trim() : 'Walk-in Customer',
+    customerPhone: customerPhone ? customerPhone.trim() : '',
+    paymentMethod: paymentMethod || 'cash',
+    notes,
+    createdAt: new Date().toISOString(),
+  }
+}
+
+export async function listBills(locationId, { limitCount = 100 } = {}) {
+  if (!locationId) return []
+  const snap = await getDocs(
+    query(
+      col('bills'),
+      where('locationId', '==', locationId)
+    )
+  )
+  const rows = snapToRows(snap)
+  rows.sort((a, b) => {
+    const ta = a.createdAt?.toMillis ? a.createdAt.toMillis() : new Date(a.createdAt || 0).getTime()
+    const tb = b.createdAt?.toMillis ? b.createdAt.toMillis() : new Date(b.createdAt || 0).getTime()
+    return tb - ta
+  })
+  return rows.slice(0, limitCount)
+}
+
