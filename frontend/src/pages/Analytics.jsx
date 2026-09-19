@@ -184,7 +184,7 @@ export default function Analytics() {
   )
 }
 
-const tooltip = { background: '#111', border: '1px solid rgba(255,255,255,0.14)', borderRadius: 10, color: '#f5f7f2' }
+const tooltip = { background: '#ffffff', border: '1px solid #d8e5d6', borderRadius: 10, color: '#192e18', boxShadow: '0 4px 16px rgba(45,90,40,0.1)' }
 
 function Kpi({ label, value, sub, tint }) {
   return (

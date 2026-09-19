@@ -67,4 +67,8 @@ export const IconEmergency = (p) => (
 export const IconReceipt = (p) => (
   <svg {...base} {...p}><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1-2-1z" /><line x1="8" y1="7" x2="16" y2="7" /><line x1="8" y1="11" x2="16" y2="11" /><line x1="8" y1="15" x2="13" y2="15" /></svg>
 )
+export const IconSparkles = (p) => (
+  <svg {...base} {...p}><path d="M12 2l2.4 5.2L20 8.5l-4 4.2.9 5.8-4.9-2.8L7.1 18.5l.9-5.8-4-4.2 5.6-1.3L12 2z" /><path d="M19 16l1.2 2.6L23 19l-2 2 .5 2.9-2.5-1.4-2.5 1.4.5-2.9-2-2 2.8-.4L19 16z" /></svg>
+)
+
 

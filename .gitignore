@@ -11,3 +11,4 @@ dist
 .firebase
 *.log
 package-lock.json
+*.zip

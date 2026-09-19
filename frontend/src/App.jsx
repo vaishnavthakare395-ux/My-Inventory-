@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
 import Sidebar from './components/Sidebar'
@@ -6,6 +6,7 @@ import TopBar from './components/TopBar'
 import RoleGuard from './components/RoleGuard'
 import Logo from './components/Logo'
 import { useAuth } from './lib/AuthContext'
+import { persistEmulatorData } from './lib/api'
 import { ROLES } from './lib/constants'
 
 import Login from './pages/Login'
@@ -13,6 +14,7 @@ import Dashboard from './pages/Dashboard'
 import Inventory from './pages/Inventory'
 import ScanAdd from './pages/ScanAdd'
 import Billing from './pages/Billing'
+import Assist from './pages/Assist'
 import NearExpiry from './pages/NearExpiry'
 import EmergencyRequirement from './pages/EmergencyRequirement'
 import Returns from './pages/Returns'
@@ -28,6 +30,7 @@ const SHOP_OPERATIONS = [ROLES.MANAGER, ROLES.USER]
 
 const ROUTES = [
   { path: '/', title: 'Dashboard', allow: SHOP_OPERATIONS, El: Dashboard, end: true },
+  { path: '/assist', title: 'AI Assist', allow: SHOP_OPERATIONS, El: Assist },
   { path: '/inventory', title: 'Inventory', allow: SHOP_OPERATIONS, El: Inventory },
   { path: '/billing', title: 'Billing & POS', allow: SHOP_OPERATIONS, El: Billing },
   { path: '/scan', title: 'Scan & Add', allow: SHOP_OPERATIONS, El: ScanAdd },
@@ -52,6 +55,27 @@ export default function App() {
     if (window.innerWidth <= 980) setNavOpen((v) => !v)
     else setCollapsed((v) => !v)
   }
+
+  // Automatically ensure emulator accounts and database persist to disk
+  useEffect(() => {
+    // Initial sync
+    persistEmulatorData().catch(() => {})
+
+    // Auto-save every 2 minutes
+    const interval = setInterval(() => {
+      persistEmulatorData().catch(() => {})
+    }, 120000)
+
+    const handleUnload = () => {
+      navigator.sendBeacon?.('/api/export-emulator')
+    }
+    window.addEventListener('beforeunload', handleUnload)
+
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('beforeunload', handleUnload)
+    }
+  }, [])
 
   if (loading) {
     return (

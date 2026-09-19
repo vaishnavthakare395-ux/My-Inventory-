@@ -26,6 +26,16 @@ import { pushToSheet, locationName } from './sheetSync'
 
 const nowStr = () => new Date().toISOString().slice(0, 19).replace('T', ' ')
 
+export async function persistEmulatorData() {
+  if (import.meta.env.DEV) {
+    try {
+      await fetch('/api/export-emulator', { method: 'POST' })
+    } catch {
+      // ignore
+    }
+  }
+}
+
 // Every stock mutation goes through this module. Direct component writes to
 // batch_inventory are intentionally avoided so the ledger always stays in sync.
 
@@ -105,11 +115,13 @@ export async function saveLocation(location) {
     },
     { merge: true }
   )
+  persistEmulatorData().catch(() => {})
   return id
 }
 
 export async function setLocationActive(id, active) {
   await updateDoc(doc(db, 'locations', id), { active })
+  persistEmulatorData().catch(() => {})
 }
 
 /* ---------------- settings (order-source websites) ---------------- */
@@ -275,6 +287,7 @@ export async function saveUserProfile(uid, profile) {
     },
     { merge: true }
   )
+  persistEmulatorData().catch(() => {})
 }
 
 // Creates a brand-new user login and creates their verified shop location.
@@ -358,6 +371,7 @@ export async function createStaffUser({
       subscriptionEndDate: subscriptionEndDate || '',
       createdAt: serverTimestamp(),
     })
+    persistEmulatorData().catch(() => {})
     return cred.user.uid
   } finally {
     await deleteApp(secondary)
@@ -459,6 +473,7 @@ export async function saveProduct(product) {
     },
     { merge: true }
   )
+  persistEmulatorData().catch(() => {})
   return id
 }
 
@@ -551,6 +566,7 @@ export async function addStock({ sku, locationId, batchNo, qty, expiryDate, by, 
   })
   // Live stock row: one row per SKU+stock group+location, updated in place.
   pushStock({ sku, batchNo, locationId, qty: newQty, expiryDate, by })
+  persistEmulatorData().catch(() => {})
   return id
 }
 
@@ -595,6 +611,7 @@ export async function removeBatch({ batchId, by, reason }) {
   })
   // Live Stock row goes to 0 / removed.
   pushStock({ sku: removed.sku, batchNo: removed.batchNo, locationId: removed.locationId, qty: 0, expiryDate: removed.expiryDate, by })
+  persistEmulatorData().catch(() => {})
 }
 
 /* ---------------- ledger ---------------- */
@@ -1316,6 +1333,8 @@ export async function createBill({
       updatedAt: serverTimestamp(),
     })
   })
+
+  persistEmulatorData().catch(() => {})
 
   return {
     id: billRef.id,

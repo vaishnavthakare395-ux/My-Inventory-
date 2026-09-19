@@ -3,7 +3,7 @@ import { ROLES } from '../lib/constants'
 import {
   IconDashboard, IconBox, IconScan, IconClock, IconEmergency,
   IconReturn, IconCheck, IconChart, IconUsers, IconShield, IconSettings,
-  IconReceipt,
+  IconReceipt, IconSparkles,
 } from './icons'
 
 const GROUPS = [
@@ -11,6 +11,7 @@ const GROUPS = [
     title: 'Operations',
     items: [
       { to: '/', label: 'Dashboard', Icon: IconDashboard, roles: [ROLES.MANAGER, ROLES.USER], end: true },
+      { to: '/assist', label: 'AI Assist', Icon: IconSparkles, roles: [ROLES.MANAGER, ROLES.USER] },
       { to: '/inventory', label: 'Inventory', Icon: IconBox, roles: [ROLES.MANAGER, ROLES.USER] },
       { to: '/billing', label: 'Billing & POS', Icon: IconReceipt, roles: [ROLES.MANAGER, ROLES.USER] },
       { to: '/scan', label: 'Scan & Add', Icon: IconScan, roles: [ROLES.MANAGER, ROLES.USER] },

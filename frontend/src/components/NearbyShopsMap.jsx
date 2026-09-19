@@ -217,7 +217,7 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
     curMarker.addTo(markersLayerRef.current)
 
     // 3. Add Associated Partner Shops within Radius
-    otherShopsInRadius.forEach((shop) => {
+    otherShopsInRadius.forEach((shop, index) => {
       const isSelected = selectedShopId === shop.id
       const markerColor = isSelected ? '#ec4899' : '#10b981'
       const partnerShopHtml = `

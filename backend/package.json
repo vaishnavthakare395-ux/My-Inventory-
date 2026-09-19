@@ -11,7 +11,8 @@
     "seed:local": "node scripts/seedLocal.mjs",
     "import:products": "node scripts/importProductsCsv.mjs",
     "deploy:rules": "firebase deploy --only firestore",
-    "emulators": "firebase emulators:start --only auth,firestore"
+    "emulators": "firebase emulators:start --only auth,firestore --import=../emulator-data --export-on-exit=../emulator-data",
+    "export:data": "firebase emulators:export ../emulator-data --project demo-stockflow --force"
   },
   "dependencies": {
     "firebase": "^12.19.0",
