@@ -4,6 +4,8 @@ import { useAuth } from '../lib/AuthContext'
 import { useAlerts } from '../lib/AlertsContext'
 import { useToast } from '../lib/ToastContext'
 import { createBill, listBills } from '../lib/api'
+import { parseScan } from '../lib/scanner'
+import ScannerModal from '../components/ScannerModal'
 
 export default function Billing() {
   const { activeLocation } = useWorkspace()
@@ -13,6 +15,10 @@ export default function Billing() {
 
   // Tabs: 'pos' or 'history'
   const [activeTab, setActiveTab] = useState('pos')
+
+  // Scanner & Batch Picker Modals
+  const [scanModalOpen, setScanModalOpen] = useState(false)
+  const [batchPickerModal, setBatchPickerModal] = useState(null) // { productName, sku, batches, scannedExpiry }
 
   // Cart State
   const [cart, setCart] = useState([])
@@ -82,14 +88,14 @@ export default function Billing() {
       .slice(0, 10)
   }, [inventory, productsBySku, productSearch])
 
-  // Add Item to Cart
+  // Add Item to Cart (Targets the SPECIFIC batch chosen by scan/expiry)
   const addToCart = (item) => {
     const existingIndex = cart.findIndex((c) => c.batchId === item.id)
     if (existingIndex >= 0) {
       // Increase qty if stock allows
       const currentCartItem = cart[existingIndex]
       if (currentCartItem.qty >= item.qty) {
-        toast.err(`Cannot add more. Only ${item.qty} units available in stock.`)
+        toast.err(`Cannot add more. Only ${item.qty} units available in this batch (${item.batchNo}).`)
         return
       }
       const updated = [...cart]
@@ -97,19 +103,20 @@ export default function Billing() {
       updated[existingIndex].subtotal = updated[existingIndex].qty * updated[existingIndex].unitPrice
       setCart(updated)
     } else {
+      const prod = productsBySku[item.sku] || {}
       setCart([
         ...cart,
         {
           batchId: item.id,
           sku: item.sku,
-          productName: item.productName,
+          productName: prod.productName || item.productName || item.sku,
           batchNo: item.batchNo,
-          expiryDate: item.expiryDate,
+          expiryDate: item.expiryDate || '',
           maxStock: item.qty,
           qty: 1,
-          unitPrice: Number(item.sellingPrice) || 0,
-          buyingPrice: Number(item.buyingPrice) || 0,
-          subtotal: Number(item.sellingPrice) || 0,
+          unitPrice: Number(item.sellingPrice || prod.sellingPrice) || 0,
+          buyingPrice: Number(item.buyingPrice || prod.buyingPrice) || 0,
+          subtotal: Number(item.sellingPrice || prod.sellingPrice) || 0,
         },
       ])
     }
@@ -117,20 +124,127 @@ export default function Billing() {
     searchInputRef.current?.focus()
   }
 
+  // Switch Batch for an Item in the Cart (Change Target Expiry Date)
+  const switchCartBatch = (oldBatchId, newBatchId) => {
+    if (oldBatchId === newBatchId) return
+    const newBatch = inventory.find((b) => b.id === newBatchId)
+    if (!newBatch) return
+
+    setCart((prev) =>
+      prev.map((it) => {
+        if (it.batchId !== oldBatchId) return it
+        const prod = productsBySku[newBatch.sku] || {}
+        const safeQty = Math.min(it.qty, newBatch.qty)
+        const price = Number(newBatch.sellingPrice || prod.sellingPrice || it.unitPrice) || 0
+        return {
+          ...it,
+          batchId: newBatch.id,
+          batchNo: newBatch.batchNo,
+          expiryDate: newBatch.expiryDate || '',
+          maxStock: newBatch.qty,
+          qty: safeQty,
+          unitPrice: price,
+          subtotal: safeQty * price,
+        }
+      })
+    )
+    toast.ok(`Switched to batch ${newBatch.batchNo} (Expiry: ${newBatch.expiryDate})`)
+  }
+
+  // Barcode & QR Code Processing (Extracts Expiry Date and Targets the Batch)
+  const processScan = (scanInput) => {
+    let parsed
+    if (typeof scanInput === 'string') {
+      parsed = parseScan(scanInput) || { type: 'barcode', barcode: scanInput.trim() }
+    } else {
+      parsed = scanInput
+    }
+
+    const raw = (parsed.raw || parsed.barcode || parsed.sku || parsed.gtin || '').trim()
+    const targetCode = (parsed.sku || parsed.barcode || parsed.gtin || raw).toLowerCase()
+    const targetExpiry = (parsed.expiryDate || '').trim()
+    const targetBatchNo = (parsed.batchNo || '').trim()
+
+    if (!targetCode) return
+
+    // Find in inventory matching this SKU, barcode, or product name
+    const matches = inventory.filter((b) => {
+      const prod = productsBySku[b.sku] || {}
+      return (
+        b.sku.toLowerCase() === targetCode ||
+        (b.barcode && b.barcode.toLowerCase() === targetCode) ||
+        (prod.barcode && prod.barcode.toLowerCase() === targetCode) ||
+        (prod.productName && prod.productName.toLowerCase() === targetCode)
+      )
+    })
+
+    if (!matches.length) {
+      toast.err(`No in-stock item found for scanned code: "${raw || targetCode}"`)
+      return
+    }
+
+    // 1. If an Expiry Date was extracted from the barcode scan (e.g. GS1 2D barcode or Shelf QR)
+    if (targetExpiry) {
+      const exactExpiryMatch = matches.find(
+        (b) => b.expiryDate === targetExpiry || (b.expiryDate && b.expiryDate.startsWith(targetExpiry))
+      )
+      if (exactExpiryMatch) {
+        addToCart(exactExpiryMatch)
+        toast.ok(`✓ Scanned from Barcode: Expiry ${exactExpiryMatch.expiryDate} (Batch ${exactExpiryMatch.batchNo})`)
+        setScanModalOpen(false)
+        setProductSearch('')
+        return
+      }
+    }
+
+    // 2. If a Batch No was extracted from the barcode
+    if (targetBatchNo) {
+      const exactBatchMatch = matches.find((b) => b.batchNo === targetBatchNo)
+      if (exactBatchMatch) {
+        addToCart(exactBatchMatch)
+        toast.ok(`✓ Scanned from Barcode: Batch ${exactBatchMatch.batchNo} (Expiry: ${exactBatchMatch.expiryDate})`)
+        setScanModalOpen(false)
+        setProductSearch('')
+        return
+      }
+    }
+
+    // 3. If only 1 batch is in stock for this product:
+    if (matches.length === 1) {
+      addToCart(matches[0])
+      toast.ok(`✓ Added: ${matches[0].productName || matches[0].sku} (Expiry: ${matches[0].expiryDate || 'N/A'})`)
+      setScanModalOpen(false)
+      setProductSearch('')
+      return
+    }
+
+    // 4. Multiple batches exist with different expiry dates:
+    // Prompt cashier to select the specific expiry date printed on the item being billed
+    const prod = productsBySku[matches[0].sku] || {}
+    setBatchPickerModal({
+      open: true,
+      productName: prod.productName || matches[0].sku,
+      sku: matches[0].sku,
+      scannedExpiry: targetExpiry,
+      batches: matches,
+    })
+    setScanModalOpen(false)
+    setProductSearch('')
+  }
+
   // Update Cart Item Quantity
   const updateQty = (batchId, newQty) => {
     const q = parseInt(newQty, 10)
     setCart((prev) =>
-      prev
-        .map((it) => {
-          if (it.batchId !== batchId) return it
-          if (isNaN(q) || q <= 0) return { ...it, qty: 1, subtotal: it.unitPrice }
-          if (q > it.maxStock) {
-            toast.err(`Stock limit exceeded. Only ${it.maxStock} units available.`)
-            return { ...it, qty: it.maxStock, subtotal: it.maxStock * it.unitPrice }
-          }
-          return { ...it, qty: q, subtotal: q * it.unitPrice }
-        })
+      prev.map((it) => {
+        if (it.batchId !== batchId) return it
+        if (isNaN(q) || q <= 0) return { ...it, qty: 1, subtotal: it.unitPrice }
+        if (q > it.maxStock) {
+          toast.err(`Batch limit exceeded. Only ${it.maxStock} units available in this batch.`)
+          return { ...it, qty: it.maxStock, subtotal: it.maxStock * it.unitPrice }
+        }
+        return { ...it, qty: q, subtotal: q * it.unitPrice }
+      })
     )
   }
 
@@ -154,7 +268,7 @@ export default function Billing() {
   const grandTotal = Math.max(0, subtotal - discountVal)
   const totalItemsCount = cart.reduce((s, it) => s + it.qty, 0)
 
-  // Handle Save Bill
+  // Handle Save Bill (Strictly Deducts from the Selected Batches — NO FEFO Override)
   const handleSaveBill = async () => {
     if (isAdmin) return toast.err('Admins cannot create bills. Bills must be created by shop user.')
     if (!activeLocation) return toast.err('Please select an active shop warehouse first.')
@@ -176,7 +290,7 @@ export default function Billing() {
         by: profile?.email || 'cashier',
       })
 
-      toast.ok(`Bill #${bill.invoiceNo} saved! Stock deducted from inventory.`)
+      toast.ok(`Bill #${bill.invoiceNo} saved! Stock deducted from targeted batches.`)
       setActiveReceipt(bill)
       clearCart()
       // Refresh inventory and bills
@@ -237,7 +351,7 @@ export default function Billing() {
         <div>
           <h1>Billing &amp; Point of Sale (POS)</h1>
           <div className="sub">
-            {activeLocation ? activeLocation.name : 'Select a Shop'} · Live Checkout &amp; Sales Invoices
+            {activeLocation ? activeLocation.name : 'Select a Shop'} · Barcode &amp; Expiry-Targeted Sales Invoices
           </div>
         </div>
 
@@ -268,18 +382,41 @@ export default function Billing() {
             {/* Search / Scan Bar */}
             <div className="card" style={{ padding: '16px 20px' }}>
               <div className="field" style={{ position: 'relative' }}>
-                <label style={{ fontWeight: 600, fontSize: 13.5 }}>
-                  Scan Barcode or Search In-Stock Product
-                </label>
-                <div className="row" style={{ gap: 8, marginTop: 4 }}>
+                <div className="row spread" style={{ marginBottom: 4, alignItems: 'center' }}>
+                  <label style={{ fontWeight: 600, fontSize: 13.5 }}>
+                    Scan Barcode or Search In-Stock Product
+                  </label>
+                  <span className="badge sm muted" style={{ fontSize: 10.5 }}>
+                    Press [Enter] to scan · Reads Expiry Directly
+                  </span>
+                </div>
+
+                <div className="row" style={{ gap: 8, alignItems: 'center' }}>
                   <input
                     ref={searchInputRef}
                     className="input mono"
-                    placeholder="Search product name, SKU, barcode, or batch..."
+                    placeholder="Scan barcode, GS1 QR, or search product name / SKU..."
                     value={productSearch}
                     onChange={(e) => setProductSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        if (productSearch.trim()) {
+                          processScan(productSearch.trim())
+                        }
+                      }
+                    }}
                     autoFocus
                   />
+                  <button
+                    type="button"
+                    className="btn primary sm"
+                    style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 6, height: 38 }}
+                    onClick={() => setScanModalOpen(true)}
+                    title="Open Camera Barcode Scanner"
+                  >
+                    📷 Scan Barcode / QR
+                  </button>
                   {productSearch && (
                     <button className="btn ghost sm" onClick={() => setProductSearch('')}>
                       Clear
@@ -324,7 +461,8 @@ export default function Billing() {
                         <div>
                           <div style={{ fontWeight: 600, fontSize: 13.5 }}>{p.productName}</div>
                           <div className="faint" style={{ fontSize: 11.5 }}>
-                            SKU: <span className="mono">{p.sku}</span> · Batch: <span className="mono">{p.batchNo}</span>
+                            SKU: <span className="mono">{p.sku}</span> · Batch: <span className="mono">{p.batchNo}</span> ·{' '}
+                            <span style={{ color: '#22c55e', fontWeight: 600 }}>Exp: {p.expiryDate || 'N/A'}</span>
                           </div>
                         </div>
                         <div style={{ textAlign: 'right' }}>
@@ -346,8 +484,13 @@ export default function Billing() {
                 className="row spread"
                 style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)', background: 'rgba(255,255,255,0.02)' }}
               >
-                <div style={{ fontWeight: 700, fontSize: 14 }}>
-                  🛒 Customer Cart ({cart.length} line item{cart.length !== 1 ? 's' : ''})
+                <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+                  <div style={{ fontWeight: 700, fontSize: 14 }}>
+                    🛒 Customer Cart ({cart.length} line item{cart.length !== 1 ? 's' : ''})
+                  </div>
+                  <span className="badge green sm" style={{ fontSize: 10, fontWeight: 700 }}>
+                    🎯 Exact Batch Deduction (No FEFO Override)
+                  </span>
                 </div>
                 {cart.length > 0 && (
                   <button className="btn ghost sm danger" onClick={clearCart} style={{ fontSize: 11 }}>
@@ -362,7 +505,7 @@ export default function Billing() {
                     <tr>
                       <th>#</th>
                       <th>Product</th>
-                      <th>Stock Group</th>
+                      <th>Batch &amp; Expiry Date (Deducted)</th>
                       <th>Rate</th>
                       <th style={{ width: 130 }}>Quantity</th>
                       <th>Total</th>
@@ -373,71 +516,99 @@ export default function Billing() {
                     {cart.length === 0 && (
                       <tr>
                         <td colSpan={7} className="empty" style={{ padding: '36px 16px' }}>
-                          Cart is currently empty. Scan or search for products above to begin billing.
+                          Cart is currently empty. Scan a barcode above to add items directly by expiry date.
                         </td>
                       </tr>
                     )}
-                    {cart.map((it, idx) => (
-                      <tr key={it.batchId}>
-                        <td>{idx + 1}</td>
-                        <td>
-                          <div style={{ fontWeight: 600 }}>{it.productName}</div>
-                          <div className="faint mono" style={{ fontSize: 11 }}>{it.sku}</div>
-                        </td>
-                        <td>
-                          <span className="mono">{it.batchNo}</span>
-                          {it.expiryDate && (
-                            <div className="faint" style={{ fontSize: 10.5 }}>Exp: {it.expiryDate}</div>
-                          )}
-                        </td>
-                        <td className="mono">₹{it.unitPrice.toFixed(2)}</td>
-                        <td>
-                          <div className="row" style={{ alignItems: 'center', gap: 4 }}>
+                    {cart.map((it, idx) => {
+                      // Look up other batches available for this SKU in case cashier wants to switch batch
+                      const availableBatchesForSku = inventory.filter((b) => b.sku === it.sku)
+
+                      return (
+                        <tr key={it.batchId}>
+                          <td>{idx + 1}</td>
+                          <td>
+                            <div style={{ fontWeight: 600 }}>{it.productName}</div>
+                            <div className="faint mono" style={{ fontSize: 11 }}>{it.sku}</div>
+                          </td>
+                          <td>
+                            {availableBatchesForSku.length > 1 ? (
+                              <div>
+                                <select
+                                  className="select"
+                                  style={{ fontSize: 11.5, padding: '3px 8px', maxWidth: 210, borderColor: 'var(--border)' }}
+                                  value={it.batchId}
+                                  onChange={(e) => switchCartBatch(it.batchId, e.target.value)}
+                                  title="Change the batch/expiry to match the exact physical item being sold"
+                                >
+                                  {availableBatchesForSku.map((b) => (
+                                    <option key={b.id} value={b.id}>
+                                      {b.batchNo} (Exp: {b.expiryDate}) · {b.qty} left
+                                    </option>
+                                  ))}
+                                </select>
+                                <div className="faint" style={{ fontSize: 10, marginTop: 2 }}>
+                                  {availableBatchesForSku.length} batches in stock
+                                </div>
+                              </div>
+                            ) : (
+                              <div>
+                                <span className="mono" style={{ fontWeight: 600 }}>{it.batchNo}</span>
+                                <div style={{ fontSize: 11, color: '#22c55e', fontWeight: 600, marginTop: 2 }}>
+                                  📅 Exp: {it.expiryDate || 'N/A'}
+                                </div>
+                              </div>
+                            )}
+                          </td>
+                          <td className="mono">₹{it.unitPrice.toFixed(2)}</td>
+                          <td>
+                            <div className="row" style={{ alignItems: 'center', gap: 4 }}>
+                              <button
+                                type="button"
+                                className="btn ghost sm"
+                                style={{ padding: '2px 8px', fontSize: 13 }}
+                                onClick={() => updateQty(it.batchId, it.qty - 1)}
+                              >
+                                -
+                              </button>
+                              <input
+                                className="input mono"
+                                type="number"
+                                min="1"
+                                max={it.maxStock}
+                                value={it.qty}
+                                onChange={(e) => updateQty(it.batchId, e.target.value)}
+                                style={{ width: 50, textAlign: 'center', padding: '4px 2px' }}
+                              />
+                              <button
+                                type="button"
+                                className="btn ghost sm"
+                                style={{ padding: '2px 8px', fontSize: 13 }}
+                                onClick={() => updateQty(it.batchId, it.qty + 1)}
+                              >
+                                +
+                              </button>
+                            </div>
+                            <div className="faint" style={{ fontSize: 10, marginTop: 2, textAlign: 'center' }}>
+                              Max: {it.maxStock} in batch
+                            </div>
+                          </td>
+                          <td className="mono" style={{ fontWeight: 700, color: 'var(--text)' }}>
+                            ₹{it.subtotal.toFixed(2)}
+                          </td>
+                          <td>
                             <button
-                              type="button"
-                              className="btn ghost sm"
-                              style={{ padding: '2px 8px', fontSize: 13 }}
-                              onClick={() => updateQty(it.batchId, it.qty - 1)}
+                              className="btn ghost sm danger"
+                              style={{ padding: '2px 6px', fontSize: 12 }}
+                              onClick={() => removeFromCart(it.batchId)}
+                              title="Remove from cart"
                             >
-                              -
+                              ✕
                             </button>
-                            <input
-                              className="input mono"
-                              type="number"
-                              min="1"
-                              max={it.maxStock}
-                              value={it.qty}
-                              onChange={(e) => updateQty(it.batchId, e.target.value)}
-                              style={{ width: 50, textAlign: 'center', padding: '4px 2px' }}
-                            />
-                            <button
-                              type="button"
-                              className="btn ghost sm"
-                              style={{ padding: '2px 8px', fontSize: 13 }}
-                              onClick={() => updateQty(it.batchId, it.qty + 1)}
-                            >
-                              +
-                            </button>
-                          </div>
-                          <div className="faint" style={{ fontSize: 10, marginTop: 2, textAlign: 'center' }}>
-                            Max: {it.maxStock}
-                          </div>
-                        </td>
-                        <td className="mono" style={{ fontWeight: 700, color: 'var(--text)' }}>
-                          ₹{it.subtotal.toFixed(2)}
-                        </td>
-                        <td>
-                          <button
-                            className="btn ghost sm danger"
-                            style={{ padding: '2px 6px', fontSize: 12 }}
-                            onClick={() => removeFromCart(it.batchId)}
-                            title="Remove from cart"
-                          >
-                            ✕
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -552,7 +723,7 @@ export default function Billing() {
                   {busy ? 'Saving Bill & Deducting Stock…' : '💳 Save & Generate Bill'}
                 </button>
                 <div className="faint" style={{ fontSize: 11, textAlign: 'center', marginTop: 8 }}>
-                  ✓ Sold items are automatically reduced from inventory upon saving.
+                  ✓ Stock is deducted strictly from each item's scanned expiry batch.
                 </div>
               </div>
             </div>
@@ -663,6 +834,85 @@ export default function Billing() {
       )}
 
       {/* ============================================================ */}
+      {/* MODAL: BATCH / EXPIRY DATE PICKER                           */}
+      {/* ============================================================ */}
+      {batchPickerModal && (
+        <div className="modal-backdrop" onClick={() => setBatchPickerModal(null)}>
+          <div className="modal" style={{ maxWidth: 460 }} onClick={(e) => e.stopPropagation()}>
+            <div className="row spread" style={{ marginBottom: 10 }}>
+              <h3 style={{ margin: 0 }}>Select Item's Expiry Date</h3>
+              <button className="btn ghost sm" onClick={() => setBatchPickerModal(null)}>✕</button>
+            </div>
+            <p className="muted" style={{ fontSize: 13, margin: '6px 0 14px' }}>
+              Product: <b>{batchPickerModal.productName}</b> (<span className="mono">{batchPickerModal.sku}</span>)<br />
+              Multiple batches exist in stock. Select the expiry date printed on the physical item being sold:
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {batchPickerModal.batches.map((b) => (
+                <div
+                  key={b.id}
+                  className="card"
+                  style={{
+                    padding: '12px 16px',
+                    cursor: 'pointer',
+                    border: '1px solid var(--border)',
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                    transition: 'border-color 0.15s, background 0.15s',
+                  }}
+                  onClick={() => {
+                    addToCart(b)
+                    setBatchPickerModal(null)
+                    toast.ok(`Targeting batch ${b.batchNo} (Expiry: ${b.expiryDate})`)
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--accent, #6366f1)'
+                    e.currentTarget.style.background = 'rgba(99, 102, 241, 0.05)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.borderColor = 'var(--border)'
+                    e.currentTarget.style.background = 'transparent'
+                  }}
+                >
+                  <div>
+                    <div style={{ fontWeight: 700, fontSize: 14 }}>
+                      📅 Expiry: <span style={{ color: '#22c55e' }}>{b.expiryDate || 'N/A'}</span>
+                    </div>
+                    <div className="faint mono" style={{ fontSize: 11.5, marginTop: 2 }}>
+                      Batch No: {b.batchNo}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <span className="badge green sm">{b.qty} units in stock</span>
+                    <div className="mono" style={{ fontSize: 13, fontWeight: 700, marginTop: 4 }}>
+                      ₹{Number(b.sellingPrice || 0).toFixed(2)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="row" style={{ marginTop: 16, justifyContent: 'flex-end' }}>
+              <button className="btn ghost sm" onClick={() => setBatchPickerModal(null)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ============================================================ */}
+      {/* CAMERA SCANNER MODAL                                         */}
+      {/* ============================================================ */}
+      <ScannerModal
+        open={scanModalOpen}
+        onClose={() => setScanModalOpen(false)}
+        onDetect={(detectResult) => {
+          processScan(detectResult)
+        }}
+      />
+
+      {/* ============================================================ */}
       {/* PRINTABLE RECEIPT MODAL                                      */}
       {/* ============================================================ */}
       {activeReceipt && (
@@ -729,7 +979,9 @@ export default function Billing() {
                     <tr key={idx} style={{ borderBottom: '1px dotted #e5e7eb' }}>
                       <td style={{ padding: '6px 0' }}>
                         <div style={{ fontWeight: 600 }}>{it.productName || it.sku}</div>
-                        <div style={{ fontSize: 10, color: '#6b7280' }}>Batch: {it.batchNo || '—'}</div>
+                        <div style={{ fontSize: 10, color: '#6b7280' }}>
+                          Batch: {it.batchNo || '—'} {it.expiryDate ? `· Exp: ${it.expiryDate}` : ''}
+                        </div>
                       </td>
                       <td style={{ padding: '6px 0', textAlign: 'center' }}>{it.qty}</td>
                       <td style={{ padding: '6px 0', textAlign: 'right' }}>₹{Number(it.unitPrice).toFixed(2)}</td>

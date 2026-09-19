@@ -1300,6 +1300,7 @@ export async function createBill({
         sku: it.sku,
         productName: it.productName || it.sku,
         batchNo: it.batchNo || '',
+        expiryDate: it.expiryDate || '',
         qty: Number(it.qty),
         unitPrice: Number(it.unitPrice) || 0,
         buyingPrice: Number(it.buyingPrice) || 0,
