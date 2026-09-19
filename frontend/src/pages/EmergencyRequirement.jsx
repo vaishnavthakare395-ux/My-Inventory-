@@ -1,4 +1,4 @@
-﻿import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useWorkspace } from '../lib/WorkspaceContext'
 import { useAuth } from '../lib/AuthContext'
 import { useToast } from '../lib/ToastContext'
@@ -20,40 +20,51 @@ function getDistanceKm(lat1, lon1, lat2, lon2) {
   return parseFloat((R * c).toFixed(1))
 }
 
+// Universal coordinate extractor supporting both lat/lng and coordinates.lat/lon
+function extractCoords(loc) {
+  if (!loc) return null
+  const rawLat = loc.lat ?? loc.coordinates?.lat
+  const rawLon = loc.lon ?? loc.lng ?? loc.coordinates?.lon ?? loc.coordinates?.lng
+  if (rawLat == null || rawLon == null) return null
+  const lat = parseFloat(rawLat)
+  const lon = parseFloat(rawLon)
+  if (isNaN(lat) || isNaN(lon)) return null
+  return { lat, lon }
+}
+
 export default function EmergencyRequirement() {
   const { activeLocation } = useWorkspace()
   const { profile } = useAuth()
   const toast = useToast()
 
-  const [activeTab, setActiveTab] = useState('search') // search | outgoing | incoming
+  // Tabs: 'search' or 'orders'
+  const [activeTab, setActiveTab] = useState('search')
+
+  // Search & Filter State
   const [queryText, setQueryText] = useState('')
-  const [maxDistance, setMaxDistance] = useState(10) // default 10 km
+  const [maxDistance, setMaxDistance] = useState(10) // 10 km default
   const [results, setResults] = useState([])
-  const [orders, setOrders] = useState([])
   const [loading, setLoading] = useState(false)
+
+  // Orders State
+  const [orders, setOrders] = useState([])
   const [ordersLoading, setOrdersLoading] = useState(false)
 
-  // Purchase modal
+  // Order Placement Modal
   const [selectedItem, setSelectedItem] = useState(null)
   const [purchaseQty, setPurchaseQty] = useState(1)
-  const [urgencyNote, setUrgencyNote] = useState('')
+  const [purchaseNotes, setPurchaseNotes] = useState('')
   const [buyingBusy, setBuyingBusy] = useState(false)
   const [completedOrder, setCompletedOrder] = useState(null)
 
   // Current Shop Coordinates
   const currentCoords = useMemo(() => {
-    if (activeLocation?.coordinates?.lat && activeLocation?.coordinates?.lon) {
-      return {
-        lat: parseFloat(activeLocation.coordinates.lat),
-        lon: parseFloat(activeLocation.coordinates.lon),
-      }
-    }
-    if (profile?.coordinates?.lat && profile?.coordinates?.lon) {
-      return {
-        lat: parseFloat(profile.coordinates.lat),
-        lon: parseFloat(profile.coordinates.lon),
-      }
-    }
+    const fromShop = extractCoords(activeLocation)
+    if (fromShop) return fromShop
+
+    const fromProfile = extractCoords(profile)
+    if (fromProfile) return fromProfile
+
     return { lat: 28.4682, lon: 77.0864 } // default fallback
   }, [activeLocation, profile])
 
@@ -103,12 +114,13 @@ export default function EmergencyRequirement() {
     return results
       .map((item) => {
         let dist = null
-        if (item.sellerCoordinates?.lat && item.sellerCoordinates?.lon) {
+        const sCoords = extractCoords(item.sellerCoordinates ? { coordinates: item.sellerCoordinates } : item)
+        if (sCoords) {
           dist = getDistanceKm(
             currentCoords.lat,
             currentCoords.lon,
-            parseFloat(item.sellerCoordinates.lat),
-            parseFloat(item.sellerCoordinates.lon)
+            sCoords.lat,
+            sCoords.lon
           )
         }
         return { ...item, distanceKm: dist }

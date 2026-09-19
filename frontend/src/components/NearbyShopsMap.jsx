@@ -18,6 +18,18 @@ function getDistanceKm(lat1, lon1, lat2, lon2) {
   return parseFloat((R * c).toFixed(2))
 }
 
+// Universal coordinate extractor supporting both lat/lng and coordinates.lat/lon (string or number)
+export function extractCoords(loc) {
+  if (!loc) return null
+  const rawLat = loc.lat ?? loc.coordinates?.lat
+  const rawLon = loc.lon ?? loc.lng ?? loc.coordinates?.lon ?? loc.coordinates?.lng
+  if (rawLat == null || rawLon == null) return null
+  const lat = parseFloat(rawLat)
+  const lon = parseFloat(rawLon)
+  if (isNaN(lat) || isNaN(lon)) return null
+  return { lat, lon }
+}
+
 export default function NearbyShopsMap({ locations = [], currentShop, currentProfile }) {
   const mapContainerRef = useRef(null)
   const mapInstanceRef = useRef(null)
@@ -29,32 +41,32 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
 
   // Determine current shop reference point
   const currentCoords = useMemo(() => {
-    // 1. Try currentShop coordinates
-    if (currentShop?.coordinates?.lat && currentShop?.coordinates?.lon) {
+    // 1. Try active currentShop
+    const fromShop = extractCoords(currentShop)
+    if (fromShop) {
       return {
-        lat: parseFloat(currentShop.coordinates.lat),
-        lon: parseFloat(currentShop.coordinates.lon),
+        ...fromShop,
         name: currentShop.name || 'Your Shop',
       }
     }
-    // 2. Try currentProfile coordinates
-    if (currentProfile?.coordinates?.lat && currentProfile?.coordinates?.lon) {
+    // 2. Try currentProfile
+    const fromProfile = extractCoords(currentProfile)
+    if (fromProfile) {
       return {
-        lat: parseFloat(currentProfile.coordinates.lat),
-        lon: parseFloat(currentProfile.coordinates.lon),
+        ...fromProfile,
         name: currentProfile.shopName || 'Your Shop',
       }
     }
     // 3. Find any location with coordinates
-    const anyLoc = locations.find((l) => l.coordinates?.lat && l.coordinates?.lon)
+    const anyLoc = locations.find((l) => extractCoords(l) !== null)
     if (anyLoc) {
+      const c = extractCoords(anyLoc)
       return {
-        lat: parseFloat(anyLoc.coordinates.lat),
-        lon: parseFloat(anyLoc.coordinates.lon),
+        ...c,
         name: anyLoc.name,
       }
     }
-    // 4. Default to Gurugram / Delhi NCR area
+    // 4. Default fallback
     return {
       lat: 28.4682,
       lon: 77.0864,
@@ -71,14 +83,26 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
   // Calculate distance for all locations associated with us
   const parsedShops = useMemo(() => {
     return locations
-      .filter((loc) => (loc.ownerEmail || loc.mapVerified) && loc.active !== false && loc.coordinates?.lat && loc.coordinates?.lon)
+      .filter((loc) => {
+        const isAssociated = (loc.ownerEmail || loc.mapVerified) && loc.active !== false
+        return isAssociated && extractCoords(loc) !== null
+      })
       .map((loc) => {
-        const lat = parseFloat(loc.coordinates.lat)
-        const lon = parseFloat(loc.coordinates.lon)
+        const coords = extractCoords(loc)
+        const lat = coords.lat
+        const lon = coords.lon
+
+        // Only mark current if it matches the current shop ID or current profile assignment!
+        // DO NOT mark other shops in the same town as current by coordinates!
         const isCurrent =
-          loc.id === currentShop?.id ||
-          loc.id === currentProfile?.shopLocationId ||
-          (Math.abs(lat - currentCoords.lat) < 0.0001 && Math.abs(lon - currentCoords.lon) < 0.0001)
+          Boolean(currentShop?.id && loc.id === currentShop.id) ||
+          Boolean(currentProfile?.shopLocationId && loc.id === currentProfile.shopLocationId) ||
+          Boolean(
+            loc.ownerEmail &&
+            currentProfile?.email &&
+            loc.ownerEmail.toLowerCase() === currentProfile.email.toLowerCase() &&
+            loc.id === (currentShop?.id || currentProfile?.shopLocationId)
+          )
 
         const dist = isCurrent ? 0 : getDistanceKm(currentCoords.lat, currentCoords.lon, lat, lon)
 
@@ -88,10 +112,10 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
           lon,
           isCurrent,
           distanceKm: dist,
-          iconEmoji: getShopIcon(loc.shopType),
+          iconEmoji: getShopIcon(loc.shopType || loc.type),
         }
       })
-      .sort((a, b) => (a.distanceKm || 0) - (b.distanceKm || 0))
+      .sort((a, b) => (a.distanceKm ?? 99999) - (b.distanceKm ?? 99999))
   }, [locations, currentShop, currentProfile, currentCoords])
 
   // Filter nearby shops within the selected radius
@@ -223,13 +247,24 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
         popupAnchor: [0, -20],
       })
 
-      const marker = L.marker([shop.lat, shop.lon], { icon: partnerIcon })
+      // If this shop has nearly identical coordinates to current shop or another shop, apply slight radial offset so pin is visible
+      let plotLat = shop.lat
+      let plotLon = shop.lon
+      if (Math.abs(shop.lat - currentCoords.lat) < 0.0003 && Math.abs(shop.lon - currentCoords.lon) < 0.0003) {
+        const angle = ((index + 1) * 2 * Math.PI) / (otherShopsInRadius.length + 1)
+        plotLat += Math.cos(angle) * 0.0018 // ~150 meters offset so pins don't overlap
+        plotLon += Math.sin(angle) * 0.0018
+      }
+
+      const distLabel = shop.distanceKm < 0.1 ? '< 0.1 km (Local)' : `${shop.distanceKm} km away`
+
+      const marker = L.marker([plotLat, plotLon], { icon: partnerIcon })
       marker.bindPopup(`
         <div style="font-family: inherit; min-width: 210px; padding: 4px;">
           <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
             <span style="font-size: 11px; font-weight: 700; color: #10b981; text-transform: uppercase;">Associated Partner</span>
             <span style="background: rgba(16, 185, 129, 0.15); color: #059669; font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 4px;">
-              ${shop.distanceKm} km away
+              ${distLabel}
             </span>
           </div>
           <div style="font-size: 14.5px; font-weight: 700; margin: 4px 0 2px; color: #111;">
@@ -365,7 +400,7 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
                       {shop.iconEmoji} {shop.name}
                     </div>
                     <span className="badge sm green" style={{ fontSize: 10.5, flexShrink: 0, padding: '1px 5px' }}>
-                      {shop.distanceKm} km
+                      {shop.distanceKm < 0.1 ? '< 0.1 km' : `${shop.distanceKm} km`}
                     </span>
                   </div>
                   <div

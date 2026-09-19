@@ -1111,9 +1111,9 @@ export async function searchEmergencyStock({ queryText = '', userLocationId }) {
       sellerLocationId: b.locationId,
       sellerShopName: loc.name || 'Partner Shop',
       sellerAddress: loc.address || '',
-      sellerPhone: loc.phone || '',
-      sellerCoordinates: loc.coordinates || null,
-      sellerShopType: loc.shopType || 'general_store',
+      sellerPhone: loc.phone || loc.ownerPhone || '',
+      sellerCoordinates: loc.coordinates || (loc.lat && loc.lng ? { lat: loc.lat, lon: loc.lng } : null),
+      sellerShopType: loc.shopType || loc.type || 'general_store',
     })
   }
 
