@@ -2,7 +2,14 @@ import { useState, useEffect, useMemo } from 'react'
 import { useWorkspace } from '../lib/WorkspaceContext'
 import { useAuth } from '../lib/AuthContext'
 import { useToast } from '../lib/ToastContext'
-import { searchEmergencyStock, createEmergencyOrder, listEmergencyOrders } from '../lib/api'
+import {
+  searchEmergencyStock,
+  createEmergencyOrder,
+  listEmergencyOrders,
+  acceptEmergencyOrder,
+  rejectEmergencyOrder,
+  receiveEmergencyOrder,
+} from '../lib/api'
 import { formatExpiry } from '../lib/fefo'
 
 // Distance calculator in km
@@ -37,7 +44,7 @@ export default function EmergencyRequirement() {
   const { profile } = useAuth()
   const toast = useToast()
 
-  // Tabs: 'search' or 'orders'
+  // Tabs: 'search', 'outgoing', or 'incoming'
   const [activeTab, setActiveTab] = useState('search')
 
   // Search & Filter State
@@ -53,9 +60,12 @@ export default function EmergencyRequirement() {
   // Order Placement Modal
   const [selectedItem, setSelectedItem] = useState(null)
   const [purchaseQty, setPurchaseQty] = useState(1)
-  const [purchaseNotes, setPurchaseNotes] = useState('')
+  const [urgencyNote, setUrgencyNote] = useState('')
   const [buyingBusy, setBuyingBusy] = useState(false)
   const [completedOrder, setCompletedOrder] = useState(null)
+
+  // Actions busy tracking
+  const [actionBusyId, setActionBusyId] = useState(null)
 
   // Current Shop Coordinates
   const currentCoords = useMemo(() => {
@@ -76,10 +86,10 @@ export default function EmergencyRequirement() {
         queryText,
         userLocationId: activeLocation?.id || '',
       })
-      setResults(data)
+      setResults(Array.isArray(data) ? data : [])
     } catch (err) {
-      console.error('Error searching emergency stock:', err)
-      toast.err('Failed to search emergency stock.')
+      console.warn('Error searching emergency stock:', err)
+      setResults([])
     } finally {
       setLoading(false)
     }
@@ -87,13 +97,17 @@ export default function EmergencyRequirement() {
 
   // Load previous orders
   const loadOrders = async () => {
-    if (!activeLocation?.id) return
+    if (!activeLocation?.id) {
+      setOrders([])
+      return
+    }
     setOrdersLoading(true)
     try {
       const list = await listEmergencyOrders(activeLocation.id)
-      setOrders(list)
+      setOrders(Array.isArray(list) ? list : [])
     } catch (err) {
-      console.error('Error loading emergency orders:', err)
+      console.warn('Error loading emergency orders:', err)
+      setOrders([])
     } finally {
       setOrdersLoading(false)
     }
@@ -147,7 +161,11 @@ export default function EmergencyRequirement() {
     return orders.filter((o) => o.sellerLocationId === activeLocation?.id)
   }, [orders, activeLocation?.id])
 
-  // Execute emergency purchase
+  const pendingIncomingCount = useMemo(() => {
+    return incomingOrders.filter((o) => o.status === 'requested').length
+  }, [incomingOrders])
+
+  // Execute emergency purchase request
   const handlePurchase = async () => {
     if (!selectedItem || !activeLocation) return
     const qty = parseInt(purchaseQty, 10)
@@ -170,6 +188,7 @@ export default function EmergencyRequirement() {
         productName: selectedItem.productName,
         batchId: selectedItem.batchId,
         batchNo: selectedItem.batchNo,
+        expiryDate: selectedItem.expiryDate || '',
         qty,
         emergencyPrice: selectedItem.emergencyPrice,
         notes: urgencyNote,
@@ -191,13 +210,78 @@ export default function EmergencyRequirement() {
 
       setCompletedOrder(completed)
       setSelectedItem(null)
-      toast.ok(`Emergency purchase of ${qty} units completed!`)
-      loadSearch()
+      toast.ok(`Emergency request sent to ${selectedItem.sellerShopName}!`)
       loadOrders()
     } catch (err) {
-      toast.err(err.message || 'Emergency purchase failed.')
+      toast.err(err.message || 'Failed to send emergency request.')
     } finally {
       setBuyingBusy(false)
+    }
+  }
+
+  // Seller accepts incoming request
+  const handleAcceptOrder = async (order) => {
+    if (!order || !activeLocation) return
+    if (!window.confirm(`Accept emergency request for ${order.qty} units of ${order.productName} and deduct from your inventory?`)) return
+
+    setActionBusyId(order.id)
+    try {
+      await acceptEmergencyOrder({
+        orderId: order.id,
+        sellerEmail: profile?.email || '',
+      })
+      toast.ok(`Request accepted! Stock deducted and reserved for ${order.buyerShopName}.`)
+      loadOrders()
+      loadSearch()
+    } catch (err) {
+      console.error('Error accepting emergency order:', err)
+      toast.err(err.message || 'Failed to accept emergency request.')
+    } finally {
+      setActionBusyId(null)
+    }
+  }
+
+  // Seller declines incoming request
+  const handleRejectOrder = async (order) => {
+    if (!order) return
+    const reason = window.prompt('Reason for declining this emergency request (optional):', 'Out of stock / reserved for counter customer')
+    if (reason === null) return
+
+    setActionBusyId(order.id)
+    try {
+      await rejectEmergencyOrder({
+        orderId: order.id,
+        reason,
+        sellerEmail: profile?.email || '',
+      })
+      toast.ok('Emergency request declined.')
+      loadOrders()
+    } catch (err) {
+      console.error('Error rejecting emergency order:', err)
+      toast.err(err.message || 'Failed to decline emergency request.')
+    } finally {
+      setActionBusyId(null)
+    }
+  }
+
+  // Buyer marks accepted stock as received into inventory
+  const handleReceiveStock = async (order) => {
+    if (!order || !activeLocation) return
+    if (!window.confirm(`Confirm receipt of ${order.qty} units of ${order.productName} into ${activeLocation.name}? Stock will be added to your shop inventory.`)) return
+
+    setActionBusyId(order.id)
+    try {
+      await receiveEmergencyOrder({
+        orderId: order.id,
+        buyerEmail: profile?.email || '',
+      })
+      toast.ok(`Stock received! ${order.qty} units added to your inventory.`)
+      loadOrders()
+    } catch (err) {
+      console.error('Error receiving emergency order:', err)
+      toast.err(err.message || 'Failed to receive emergency stock.')
+    } finally {
+      setActionBusyId(null)
     }
   }
 
@@ -235,8 +319,15 @@ export default function EmergencyRequirement() {
         <button
           className={`btn ${activeTab === 'incoming' ? 'primary' : ''}`}
           onClick={() => setActiveTab('incoming')}
+          style={{ position: 'relative' }}
         >
-          📥 Incoming Emergency Requests ({incomingOrders.length})
+          📥 Incoming Emergency Requests ({incomingOrders.length}
+          {pendingIncomingCount > 0 && (
+            <span style={{ marginLeft: 6, background: '#ef4444', color: '#fff', borderRadius: 10, padding: '1px 6px', fontSize: 11, fontWeight: 700 }}>
+              {pendingIncomingCount} new
+            </span>
+          )}
+          )
         </button>
       </div>
 
@@ -418,11 +509,16 @@ export default function EmergencyRequirement() {
         </>
       )}
 
-      {/* Tab 2: Outgoing Purchases */}
+      {/* Tab 2: Outgoing Purchases / Requests */}
       {activeTab === 'outgoing' && (
         <div className="card">
           <div className="row spread" style={{ marginBottom: 14 }}>
-            <h3 style={{ margin: 0 }}>My Emergency Purchases</h3>
+            <div>
+              <h3 style={{ margin: 0 }}>My Emergency Purchases &amp; Requests</h3>
+              <div className="muted" style={{ fontSize: 12.5, marginTop: 2 }}>
+                Requests sent to partner shops for emergency stock
+              </div>
+            </div>
             <span className="muted" style={{ fontSize: 13 }}>{outgoingOrders.length} orders placed</span>
           </div>
 
@@ -442,8 +538,9 @@ export default function EmergencyRequirement() {
                     <th>Seller Shop</th>
                     <th>Quantity</th>
                     <th>Emergency Price</th>
-                    <th>Total Billed</th>
+                    <th>Total Bill</th>
                     <th>Status</th>
+                    <th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -458,10 +555,21 @@ export default function EmergencyRequirement() {
                       <td>
                         <div style={{ fontWeight: 600 }}>{o.productName}</div>
                         <span className="mono faint" style={{ fontSize: 11 }}>{o.sku} · Batch {o.batchNo}</span>
+                        {o.notes && (
+                          <div style={{ fontSize: 11, color: 'var(--muted)', marginTop: 2 }}>
+                            💬 <i>"{o.notes}"</i>
+                          </div>
+                        )}
                       </td>
                       <td>
-                        <div style={{ fontWeight: 600 }}>{o.sellerShopName}</div>
-                        {o.sellerPhone && <div className="muted" style={{ fontSize: 11 }}>📞 {o.sellerPhone}</div>}
+                        <div style={{ fontWeight: 600 }}>🏪 {o.sellerShopName}</div>
+                        {o.sellerPhone && (
+                          <div style={{ fontSize: 11.5, marginTop: 2 }}>
+                            <a href={`tel:${o.sellerPhone}`} style={{ color: 'var(--accent, #6366f1)', textDecoration: 'none' }}>
+                              📞 {o.sellerPhone}
+                            </a>
+                          </div>
+                        )}
                       </td>
                       <td>
                         <b>{o.qty} units</b>
@@ -473,7 +581,53 @@ export default function EmergencyRequirement() {
                         <b style={{ color: '#22c55e', fontSize: 14 }}>₹{Number(o.totalAmount).toFixed(2)}</b>
                       </td>
                       <td>
-                        <span className="badge sm green">✓ {o.status || 'Completed'}</span>
+                        {o.status === 'requested' && (
+                          <span className="badge sm" style={{ background: '#f59e0b', color: '#fff', fontWeight: 600 }}>
+                            ⏳ Requested (Awaiting Seller)
+                          </span>
+                        )}
+                        {o.status === 'accepted' && (
+                          <span className="badge sm" style={{ background: '#22c55e', color: '#fff', fontWeight: 600 }}>
+                            ✓ Accepted · Ready
+                          </span>
+                        )}
+                        {o.status === 'completed' && (
+                          <span className="badge sm" style={{ background: '#3b82f6', color: '#fff', fontWeight: 600 }}>
+                            📦 Stock Added to Shop
+                          </span>
+                        )}
+                        {o.status === 'rejected' && (
+                          <div>
+                            <span className="badge sm" style={{ background: '#ef4444', color: '#fff', fontWeight: 600 }}>
+                              ✕ Declined
+                            </span>
+                            {o.rejectReason && (
+                              <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 2 }}>
+                                {o.rejectReason}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        {o.status === 'accepted' ? (
+                          <button
+                            className="btn primary sm"
+                            disabled={actionBusyId === o.id}
+                            onClick={() => handleReceiveStock(o)}
+                            style={{ background: '#22c55e', borderColor: '#22c55e', whiteSpace: 'nowrap' }}
+                          >
+                            {actionBusyId === o.id ? 'Receiving…' : '📥 Receive Stock'}
+                          </button>
+                        ) : o.status === 'requested' ? (
+                          <span className="faint" style={{ fontSize: 11.5 }}>
+                            Awaiting response
+                          </span>
+                        ) : o.status === 'completed' ? (
+                          <span className="badge sm green">In Inventory</span>
+                        ) : (
+                          <span className="faint" style={{ fontSize: 11 }}>Declined</span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -484,19 +638,24 @@ export default function EmergencyRequirement() {
         </div>
       )}
 
-      {/* Tab 3: Incoming Requests */}
+      {/* Tab 3: Incoming Requests from other shops */}
       {activeTab === 'incoming' && (
         <div className="card">
           <div className="row spread" style={{ marginBottom: 14 }}>
-            <h3 style={{ margin: 0 }}>Incoming Emergency Requests from Other Shops</h3>
-            <span className="muted" style={{ fontSize: 13 }}>{incomingOrders.length} orders received</span>
+            <div>
+              <h3 style={{ margin: 0 }}>Incoming Emergency Requests from Other Shops</h3>
+              <div className="muted" style={{ fontSize: 12.5, marginTop: 2 }}>
+                Partner shops urgently requesting stock from your inventory
+              </div>
+            </div>
+            <span className="muted" style={{ fontSize: 13 }}>{incomingOrders.length} requests received</span>
           </div>
 
           {ordersLoading ? (
             <div className="empty">Loading orders…</div>
           ) : incomingOrders.length === 0 ? (
             <div className="empty" style={{ padding: '36px 16px' }}>
-              No emergency purchases received from other shops yet.
+              No emergency requests received from other shops yet.
             </div>
           ) : (
             <div className="table-wrap">
@@ -504,17 +663,18 @@ export default function EmergencyRequirement() {
                 <thead>
                   <tr>
                     <th>Date &amp; Order ID</th>
-                    <th>Purchased Product</th>
-                    <th>Buyer Shop</th>
-                    <th>Quantity Sold</th>
+                    <th>Requested Product</th>
+                    <th>Buyer Shop &amp; Contact</th>
+                    <th>Quantity</th>
                     <th>Emergency Price</th>
-                    <th>Amount Received</th>
+                    <th>Total Amount</th>
                     <th>Status</th>
+                    <th>Action</th>
                   </tr>
                 </thead>
                 <tbody>
                   {incomingOrders.map((o) => (
-                    <tr key={o.id}>
+                    <tr key={o.id} style={o.status === 'requested' ? { background: 'rgba(245, 158, 11, 0.05)' } : {}}>
                       <td>
                         <div style={{ fontWeight: 600, fontSize: 12.5 }}>
                           {o.createdAt?.toDate ? o.createdAt.toDate().toLocaleString() : 'Recent'}
@@ -524,10 +684,22 @@ export default function EmergencyRequirement() {
                       <td>
                         <div style={{ fontWeight: 600 }}>{o.productName}</div>
                         <span className="mono faint" style={{ fontSize: 11 }}>{o.sku} · Batch {o.batchNo}</span>
+                        {o.notes && (
+                          <div style={{ fontSize: 11.5, background: 'rgba(239, 68, 68, 0.08)', color: '#b91c1c', padding: '3px 6px', borderRadius: 4, marginTop: 4 }}>
+                            ⚡ <b>Urgency Note:</b> {o.notes}
+                          </div>
+                        )}
                       </td>
                       <td>
-                        <div style={{ fontWeight: 600 }}>{o.buyerShopName}</div>
-                        {o.buyerPhone && <div className="muted" style={{ fontSize: 11 }}>📞 {o.buyerPhone}</div>}
+                        <div style={{ fontWeight: 600 }}>🏪 {o.buyerShopName}</div>
+                        {o.buyerPhone && (
+                          <div style={{ fontSize: 11.5, marginTop: 2 }}>
+                            <a href={`tel:${o.buyerPhone}`} style={{ color: 'var(--accent, #6366f1)', textDecoration: 'none' }}>
+                              📞 {o.buyerPhone}
+                            </a>
+                          </div>
+                        )}
+                        {o.buyerEmail && <div className="faint" style={{ fontSize: 10.5 }}>{o.buyerEmail}</div>}
                       </td>
                       <td>
                         <b>{o.qty} units</b>
@@ -539,7 +711,61 @@ export default function EmergencyRequirement() {
                         <b style={{ color: '#22c55e', fontSize: 14 }}>₹{Number(o.totalAmount).toFixed(2)}</b>
                       </td>
                       <td>
-                        <span className="badge sm green">✓ {o.status || 'Completed'}</span>
+                        {o.status === 'requested' && (
+                          <span className="badge sm" style={{ background: '#f59e0b', color: '#fff', fontWeight: 600 }}>
+                            ⏳ Action Needed
+                          </span>
+                        )}
+                        {o.status === 'accepted' && (
+                          <span className="badge sm" style={{ background: '#22c55e', color: '#fff', fontWeight: 600 }}>
+                            ✓ Stock Deducted &amp; Reserved
+                          </span>
+                        )}
+                        {o.status === 'completed' && (
+                          <span className="badge sm" style={{ background: '#3b82f6', color: '#fff', fontWeight: 600 }}>
+                            📦 Fulfilled &amp; Collected
+                          </span>
+                        )}
+                        {o.status === 'rejected' && (
+                          <div>
+                            <span className="badge sm" style={{ background: '#ef4444', color: '#fff', fontWeight: 600 }}>
+                              ✕ Declined
+                            </span>
+                            {o.rejectReason && (
+                              <div style={{ fontSize: 10.5, color: 'var(--muted)', marginTop: 2 }}>
+                                {o.rejectReason}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td>
+                        {o.status === 'requested' ? (
+                          <div className="row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+                            <button
+                              className="btn primary sm"
+                              disabled={actionBusyId === o.id}
+                              onClick={() => handleAcceptOrder(o)}
+                              style={{ background: '#22c55e', borderColor: '#22c55e', whiteSpace: 'nowrap' }}
+                            >
+                              {actionBusyId === o.id ? 'Processing…' : '✓ Accept & Supply'}
+                            </button>
+                            <button
+                              className="btn sm"
+                              disabled={actionBusyId === o.id}
+                              onClick={() => handleRejectOrder(o)}
+                              style={{ color: '#ef4444', borderColor: '#ef4444', whiteSpace: 'nowrap' }}
+                            >
+                              ✕ Decline
+                            </button>
+                          </div>
+                        ) : o.status === 'accepted' ? (
+                          <span className="badge sm green">Stock Reserved</span>
+                        ) : o.status === 'completed' ? (
+                          <span className="badge sm info">Fulfilled</span>
+                        ) : (
+                          <span className="faint" style={{ fontSize: 11 }}>Declined</span>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -550,16 +776,20 @@ export default function EmergencyRequirement() {
         </div>
       )}
 
-      {/* Emergency Purchase Modal */}
+      {/* Emergency Purchase Request Modal */}
       {selectedItem && (
         <div className="modal-backdrop" onClick={() => !buyingBusy && setSelectedItem(null)}>
           <div className="modal card" style={{ maxWidth: 500 }} onClick={(e) => e.stopPropagation()}>
             <div className="row spread" style={{ marginBottom: 12 }}>
               <div className="row" style={{ gap: 8, alignItems: 'center' }}>
                 <span style={{ fontSize: 20 }}>⚡</span>
-                <h3 style={{ margin: 0, color: '#ef4444' }}>Emergency Purchase Request</h3>
+                <h3 style={{ margin: 0, color: '#ef4444' }}>Send Emergency Stock Request</h3>
               </div>
               <button className="btn sm" onClick={() => !buyingBusy && setSelectedItem(null)}>✕</button>
+            </div>
+
+            <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>
+              Send an instant emergency request to <b>{selectedItem.sellerShopName}</b>. Once accepted by the shopkeeper, the stock will be deducted from their inventory and reserved for you.
             </div>
 
             {/* Product & Seller Details */}
@@ -643,7 +873,7 @@ export default function EmergencyRequirement() {
               <textarea
                 className="input"
                 rows="2"
-                placeholder="e.g. Urgent customer at counter, picking up in 15 mins."
+                placeholder="e.g. Urgent customer at counter, will pick up in 15 mins."
                 value={urgencyNote}
                 onChange={(e) => setUrgencyNote(e.target.value)}
               />
@@ -660,7 +890,7 @@ export default function EmergencyRequirement() {
                 onClick={handlePurchase}
                 style={{ background: '#ef4444', borderColor: '#ef4444' }}
               >
-                {buyingBusy ? 'Processing Order…' : 'Confirm Emergency Purchase'}
+                {buyingBusy ? 'Sending Request…' : '🚀 Send Emergency Request'}
               </button>
             </div>
           </div>
@@ -674,18 +904,18 @@ export default function EmergencyRequirement() {
             <div className="row spread" style={{ marginBottom: 12 }}>
               <div className="row" style={{ gap: 8, alignItems: 'center' }}>
                 <span style={{ fontSize: 22 }}>✅</span>
-                <h3 style={{ margin: 0, color: '#22c55e' }}>Emergency Purchase Confirmed</h3>
+                <h3 style={{ margin: 0, color: '#22c55e' }}>Emergency Request Sent!</h3>
               </div>
               <button className="btn sm" onClick={() => setCompletedOrder(null)}>✕</button>
             </div>
 
             <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 14px' }}>
-              Your emergency procurement has been recorded and stock was reserved from the seller.
+              Your emergency request has been sent to <b>{completedOrder.sellerShopName}</b>. Once accepted by the shopkeeper, the stock will be reserved for you.
             </p>
 
             <div style={{ background: 'rgba(255,255,255,0.03)', padding: 14, borderRadius: 8, marginBottom: 16, fontSize: 13 }}>
               <div className="row spread">
-                <span className="faint">Order ID:</span>
+                <span className="faint">Request ID:</span>
                 <span className="mono">#{completedOrder.orderId.slice(0, 10)}</span>
               </div>
               <div className="row spread" style={{ marginTop: 6 }}>
@@ -693,7 +923,7 @@ export default function EmergencyRequirement() {
                 <b>{completedOrder.productName}</b>
               </div>
               <div className="row spread" style={{ marginTop: 6 }}>
-                <span className="faint">Quantity Procured:</span>
+                <span className="faint">Quantity Requested:</span>
                 <b>{completedOrder.qty} units</b>
               </div>
               <div className="row spread" style={{ marginTop: 6 }}>
@@ -705,12 +935,12 @@ export default function EmergencyRequirement() {
                 <b style={{ color: '#22c55e', fontSize: 16 }}>₹{completedOrder.totalAmount.toFixed(2)}</b>
               </div>
               <div className="row spread" style={{ marginTop: 8 }}>
-                <span className="faint">Pickup From:</span>
+                <span className="faint">Requested From:</span>
                 <b>{completedOrder.sellerShopName}</b>
               </div>
               {completedOrder.sellerPhone && (
                 <div className="row spread" style={{ marginTop: 4 }}>
-                  <span className="faint">Seller Contact:</span>
+                  <span className="faint">Seller Phone:</span>
                   <a href={`tel:${completedOrder.sellerPhone}`} style={{ color: 'var(--accent, #6366f1)', textDecoration: 'none' }}>
                     📞 {completedOrder.sellerPhone}
                   </a>
@@ -720,7 +950,7 @@ export default function EmergencyRequirement() {
 
             <div className="row end" style={{ gap: 8 }}>
               <button className="btn primary" onClick={() => setCompletedOrder(null)}>
-                Done
+                Got it
               </button>
             </div>
           </div>

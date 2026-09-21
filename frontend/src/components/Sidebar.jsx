@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { NavLink } from 'react-router-dom'
 import { ROLES } from '../lib/constants'
 import {
@@ -6,74 +7,116 @@ import {
   IconReceipt, IconSparkles,
 } from './icons'
 
-const GROUPS = [
-  {
-    title: 'Operations',
-    items: [
-      { to: '/', label: 'Dashboard', Icon: IconDashboard, roles: [ROLES.MANAGER, ROLES.USER], end: true },
-      { to: '/assist', label: 'AI Assist', Icon: IconSparkles, roles: [ROLES.MANAGER, ROLES.USER] },
-      { to: '/inventory', label: 'Inventory', Icon: IconBox, roles: [ROLES.MANAGER, ROLES.USER] },
-      { to: '/billing', label: 'Billing & POS', Icon: IconReceipt, roles: [ROLES.MANAGER, ROLES.USER] },
-      { to: '/scan', label: 'Scan & Add', Icon: IconScan, roles: [ROLES.MANAGER, ROLES.USER] },
-      { to: '/expiring', label: 'Near Expiry', Icon: IconClock, roles: [ROLES.MANAGER, ROLES.USER] },
-      { to: '/emergency-requirement', label: 'Emergency Requirement', Icon: IconEmergency, roles: [ROLES.MANAGER, ROLES.USER] },
-      { to: '/returns', label: 'Returns', Icon: IconReturn, roles: [ROLES.MANAGER, ROLES.USER] },
-    ],
-  },
-  {
-    title: 'Management',
-    items: [
-      { to: '/users', label: 'Shop Onboarding', Icon: IconUsers, roles: [ROLES.ADMIN, ROLES.MANAGER] },
-      { to: '/approvals', label: 'Approvals', Icon: IconCheck, roles: [ROLES.MANAGER] },
-      { to: '/analytics', label: 'Analytics', Icon: IconChart, roles: [ROLES.MANAGER] },
-      { to: '/reports', label: 'Reports', Icon: IconChart, roles: [ROLES.MANAGER] },
-    ],
-  },
-  {
-    title: 'System',
-    items: [
-      { to: '/admin', label: 'Members List', Icon: IconShield, roles: [ROLES.ADMIN] },
-      { to: '/settings', label: 'Settings', Icon: IconSettings, roles: [ROLES.ADMIN, ROLES.MANAGER, ROLES.USER] },
-    ],
-  },
-]
-
 export default function Sidebar({ role, open, collapsed, onClose }) {
+  const groups = useMemo(() => {
+    if (role === ROLES.ADMIN) {
+      return [
+        {
+          title: 'Platform Management',
+          items: [
+            { to: '/admin/members', label: 'Members List', Icon: IconShield },
+            { to: '/admin/onboarding', label: 'Shop Onboarding', Icon: IconUsers },
+          ],
+        },
+        {
+          title: 'System',
+          items: [
+            { to: '/admin/settings', label: 'Platform Settings', Icon: IconSettings },
+          ],
+        },
+      ]
+    }
+
+    if (role === ROLES.USER) {
+      // Cashier Counter Role
+      return [
+        {
+          title: 'Operations',
+          items: [
+            { to: '/cashier/dashboard', label: 'Dashboard', Icon: IconDashboard },
+            { to: '/cashier/billing', label: 'Billing & POS', Icon: IconReceipt },
+            { to: '/cashier/inventory', label: 'Inventory Lookup', Icon: IconBox },
+            { to: '/cashier/scan', label: 'Scan & Add', Icon: IconScan },
+            { to: '/cashier/expiring', label: 'Near Expiry', Icon: IconClock },
+            { to: '/cashier/emergency', label: 'Emergency Stock', Icon: IconEmergency },
+            { to: '/cashier/returns', label: 'Returns', Icon: IconReturn },
+          ],
+        },
+        {
+          title: 'System',
+          items: [
+            { to: '/cashier/settings', label: 'Settings', Icon: IconSettings },
+          ],
+        },
+      ]
+    }
+
+    // Default: Store Owner / Manager
+    return [
+      {
+        title: 'Operations',
+        items: [
+          { to: '/manager/dashboard', label: 'Dashboard', Icon: IconDashboard },
+          { to: '/manager/assist', label: 'AI Assist', Icon: IconSparkles },
+          { to: '/manager/inventory', label: 'Inventory', Icon: IconBox },
+          { to: '/manager/billing', label: 'Billing & POS', Icon: IconReceipt },
+          { to: '/manager/scan', label: 'Scan & Add', Icon: IconScan },
+          { to: '/manager/expiring', label: 'Near Expiry', Icon: IconClock },
+          { to: '/manager/emergency', label: 'Emergency Requirement', Icon: IconEmergency },
+          { to: '/manager/returns', label: 'Returns', Icon: IconReturn },
+        ],
+      },
+      {
+        title: 'Management',
+        items: [
+          { to: '/manager/staff', label: 'Staff Management', Icon: IconUsers },
+          { to: '/manager/approvals', label: 'Approvals', Icon: IconCheck },
+          { to: '/manager/analytics', label: 'Analytics', Icon: IconChart },
+          { to: '/manager/reports', label: 'Reports', Icon: IconChart },
+        ],
+      },
+      {
+        title: 'System',
+        items: [
+          { to: '/manager/settings', label: 'Settings', Icon: IconSettings },
+        ],
+      },
+    ]
+  }, [role])
+
   return (
     <>
       <div className={`sidebar-scrim ${open ? 'show' : ''}`} onClick={onClose} />
       <aside className={`sidebar ${open ? 'open' : ''} ${collapsed ? 'is-collapsed' : ''}`}>
         <nav className="sb-nav">
-          {GROUPS.map((g) => {
-            const items = g.items.filter((i) => i.roles.includes(role))
-            if (!items.length) return null
-            return (
-              <div className="sb-group" key={g.title}>
-                <div className="sb-group-title">{g.title}</div>
-                {items.map(({ to, label, Icon, end }) => (
-                  <NavLink
-                    key={to}
-                    to={to}
-                    end={end}
-                    onClick={onClose}
-                    title={label}
-                    className={({ isActive }) => (isActive ? 'sb-link on' : 'sb-link')}
-                  >
-                    <Icon className="sb-ico" />
-                    <span className="sb-label">{label}</span>
-                  </NavLink>
-                ))}
-              </div>
-            )
-          })}
+          {groups.map((g) => (
+            <div className="sb-group" key={g.title}>
+              <div className="sb-group-title">{g.title}</div>
+              {g.items.map(({ to, label, Icon, end }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  end={end}
+                  onClick={onClose}
+                  title={label}
+                  className={({ isActive }) => (isActive ? 'sb-link on' : 'sb-link')}
+                >
+                  <Icon className="sb-ico" />
+                  <span className="sb-label">{label}</span>
+                </NavLink>
+              ))}
+            </div>
+          ))}
         </nav>
 
         <div className="sb-foot">
           <div className="sb-foot-card">
             <div className="sb-foot-dot" />
             <div className="sb-foot-meta">
-              <div className="sb-foot-title">All systems live</div>
-              <div className="sb-foot-sub">Secure cloud · synced</div>
+              <div className="sb-foot-title">
+                {role === ROLES.ADMIN ? 'Admin Portal' : role === ROLES.USER ? 'Cashier Mode' : 'Manager Workspace'}
+              </div>
+              <div className="sb-foot-sub">Google Cloud · live</div>
             </div>
           </div>
         </div>

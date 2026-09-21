@@ -45,10 +45,11 @@ service cloud.firestore {
       return qty is number && qty >= 0;
     }
 
-    // Reference data everyone signed in can read; only admins change it.
+    // Reference data everyone signed in can read; managers/admins or registering users can create.
     match /locations/{id} {
       allow read: if signedIn();
-      allow write: if isAdmin();
+      allow create: if signedIn();
+      allow update, delete: if isManagerOrAdmin();
     }
 
     // App settings (order-source website list, etc.).
@@ -65,11 +66,11 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Users manage themselves only for reading; managers/admins create+edit accounts.
+    // Users manage themselves; managers/admins create+edit accounts.
     match /users/{uid} {
       allow read: if signedIn() && (request.auth.uid == uid || isManagerOrAdmin());
-      allow create: if isAdmin() || managerCanWriteUser();
-      allow update: if isAdmin() || (resource.data.role == 'user' && managerCanWriteUser());
+      allow create: if signedIn() && (request.auth.uid == uid || isAdmin() || managerCanWriteUser());
+      allow update: if signedIn() && (request.auth.uid == uid || isAdmin() || (resource.data.role == 'user' && managerCanWriteUser()));
       allow delete: if isAdmin();
     }
 

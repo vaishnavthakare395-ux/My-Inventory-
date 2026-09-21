@@ -7,8 +7,8 @@ import AlertsBell from './AlertsBell'
 import Logo from './Logo'
 import { IconMenu, IconSettings, IconLogout } from './icons'
 
-export default function TopBar({ title, onMenu }) {
-  const { profile, role, myLocations, logout } = useAuth()
+export default function TopBar({ title, onMenu, homePath }) {
+  const { user, profile, role, myLocations, logout } = useAuth()
   const { activeLocationId, setActive, activeLocation } = useWorkspace()
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -20,16 +20,21 @@ export default function TopBar({ title, onMenu }) {
     .map((s) => s[0]?.toUpperCase())
     .join('')
 
+  const avatarUrl = profile?.photoURL || user?.photoURL
+
   const handleLogout = async () => {
     await logout()
     navigate('/login')
   }
 
+  const roleHome = homePath || (role === 'admin' ? '/admin/members' : role === 'user' ? '/cashier/dashboard' : '/manager/dashboard')
+  const settingsPath = role === 'admin' ? '/admin/settings' : role === 'user' ? '/cashier/settings' : '/manager/settings'
+
   return (
     <header className="topbar">
       <button className="tb-menu" onClick={onMenu} aria-label="Toggle menu"><IconMenu /></button>
 
-      <Link to="/" className="tb-brand">
+      <Link to={roleHome} className="tb-brand">
         <Logo size={30} />
         <span className="tb-brand-name">My Inventory</span>
       </Link>
@@ -59,7 +64,18 @@ export default function TopBar({ title, onMenu }) {
 
         <div className="tb-user-wrap">
           <button className="tb-user" onClick={() => setMenuOpen((v) => !v)}>
-            <span className="tb-avatar">{initials}</span>
+            <span className="tb-avatar" style={{ overflow: 'hidden', padding: 0 }}>
+              {avatarUrl ? (
+                <img
+                  src={avatarUrl}
+                  alt={profile?.name || 'User'}
+                  style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover' }}
+                  onError={(e) => { e.target.style.display = 'none' }}
+                />
+              ) : (
+                initials
+              )}
+            </span>
             <span className="tb-user-meta">
               <span className="tb-user-name">{profile?.name || profile?.email}</span>
               <span className="tb-user-role">{ROLE_LABELS[role] || role}</span>
@@ -70,7 +86,7 @@ export default function TopBar({ title, onMenu }) {
             <>
               <div className="tb-menu-scrim" onClick={() => setMenuOpen(false)} />
               <div className="tb-menu-pop">
-                <Link to="/settings" className="tb-menu-item" onClick={() => setMenuOpen(false)}>
+                <Link to={settingsPath} className="tb-menu-item" onClick={() => setMenuOpen(false)}>
                   <IconSettings className="tb-mi-ico" /> Settings
                 </Link>
                 <button className="tb-menu-item" onClick={handleLogout}>

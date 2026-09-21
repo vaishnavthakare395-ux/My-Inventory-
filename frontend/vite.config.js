@@ -46,9 +46,11 @@ function autoExportPlugin() {
         }
       })
 
-      // Continuous periodic background persistence every 30 seconds
+      // Continuous periodic background persistence every 30 seconds (only when using emulator)
       const autoSaveTimer = setInterval(() => {
-        triggerAutoExport()
+        if (process.env.VITE_USE_EMULATORS === 'true') {
+          triggerAutoExport()
+        }
       }, 30000)
 
       server.httpServer?.on('close', () => {

@@ -19,7 +19,7 @@ function getDistanceKm(lat1, lon1, lat2, lon2) {
 }
 
 // Universal coordinate extractor supporting both lat/lng and coordinates.lat/lon (string or number)
-export function extractCoords(loc) {
+function extractCoords(loc) {
   if (!loc) return null
   const rawLat = loc.lat ?? loc.coordinates?.lat
   const rawLon = loc.lon ?? loc.lng ?? loc.coordinates?.lon ?? loc.coordinates?.lng
@@ -114,6 +114,17 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
           distanceKm: dist,
           iconEmoji: getShopIcon(loc.shopType || loc.type),
         }
+      })
+      .filter((loc) => {
+        // If it's not marked current, but shares the exact same name and coordinates (< 50m) as current shop,
+        // ignore it to prevent showing duplicates of the user's own store.
+        if (!loc.isCurrent && currentShop) {
+          const sameName = loc.name?.trim().toLowerCase() === currentShop.name?.trim().toLowerCase()
+          if (sameName && loc.distanceKm !== null && loc.distanceKm < 0.05) {
+            return false
+          }
+        }
+        return true
       })
       .sort((a, b) => (a.distanceKm ?? 99999) - (b.distanceKm ?? 99999))
   }, [locations, currentShop, currentProfile, currentCoords])
@@ -358,7 +369,7 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
         {otherShopsInRadius.length === 0 ? (
           <div
             style={{
-              padding: '16px 12px',
+              padding: '16px 14px',
               borderRadius: 6,
               background: 'rgba(255,255,255,0.02)',
               border: '1px dashed var(--border)',
@@ -367,7 +378,7 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
               color: 'var(--muted)',
             }}
           >
-            No other partner shops detected within <strong>{radiusKm} km</strong> of your location. Try selecting a larger radius (15 or 20 km) or onboard new shops in this zone.
+            No other partner shops detected within <strong>{radiusKm} km</strong> of your location. Try selecting a larger radius (15 or 20 km) to discover nearby partner stores.
           </div>
         ) : (
           <div

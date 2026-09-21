@@ -26,23 +26,46 @@ import Admin from './pages/Admin'
 import Settings from './pages/Settings'
 
 const ALL = [ROLES.ADMIN, ROLES.MANAGER, ROLES.USER]
-const SHOP_OPERATIONS = [ROLES.MANAGER, ROLES.USER]
+
+function getHomePath(role) {
+  if (role === ROLES.ADMIN) return '/admin/members'
+  if (role === ROLES.USER) return '/cashier/dashboard'
+  return '/manager/dashboard'
+}
 
 const ROUTES = [
-  { path: '/', title: 'Dashboard', allow: SHOP_OPERATIONS, El: Dashboard, end: true },
-  { path: '/assist', title: 'AI Assist', allow: SHOP_OPERATIONS, El: Assist },
-  { path: '/inventory', title: 'Inventory', allow: SHOP_OPERATIONS, El: Inventory },
-  { path: '/billing', title: 'Billing & POS', allow: SHOP_OPERATIONS, El: Billing },
-  { path: '/scan', title: 'Scan & Add', allow: SHOP_OPERATIONS, El: ScanAdd },
-  { path: '/expiring', title: 'Near Expiry', allow: SHOP_OPERATIONS, El: NearExpiry },
-  { path: '/emergency-requirement', title: 'Emergency Requirement', allow: SHOP_OPERATIONS, El: EmergencyRequirement },
-  { path: '/returns', title: 'Returns', allow: SHOP_OPERATIONS, El: Returns },
-  { path: '/approvals', title: 'Approvals', allow: [ROLES.MANAGER], El: Approvals },
-  { path: '/analytics', title: 'Analytics', allow: [ROLES.MANAGER], El: Analytics },
-  { path: '/reports', title: 'Reports', allow: [ROLES.MANAGER], El: Reports },
-  { path: '/users', title: 'Shop Onboarding', allow: [ROLES.ADMIN, ROLES.MANAGER], El: Users },
-  { path: '/admin', title: 'Members List', allow: [ROLES.ADMIN], El: Admin },
-  { path: '/settings', title: 'Settings', allow: ALL, El: Settings },
+  // Admin Directory Routes
+  { path: '/admin', title: 'Admin Console', allow: [ROLES.ADMIN], El: Admin, end: true },
+  { path: '/admin/members', title: 'Members List', allow: [ROLES.ADMIN], El: Admin },
+  { path: '/admin/onboarding', title: 'Shop Onboarding', allow: [ROLES.ADMIN], El: Users },
+  { path: '/admin/settings', title: 'Platform Settings', allow: [ROLES.ADMIN], El: Settings },
+
+  // Manager Directory Routes
+  { path: '/manager', title: 'Store Dashboard', allow: [ROLES.MANAGER], El: Dashboard, end: true },
+  { path: '/manager/dashboard', title: 'Dashboard', allow: [ROLES.MANAGER], El: Dashboard },
+  { path: '/manager/assist', title: 'AI Assist', allow: [ROLES.MANAGER], El: Assist },
+  { path: '/manager/inventory', title: 'Inventory', allow: [ROLES.MANAGER], El: Inventory },
+  { path: '/manager/billing', title: 'Billing & POS', allow: [ROLES.MANAGER], El: Billing },
+  { path: '/manager/scan', title: 'Scan & Add', allow: [ROLES.MANAGER], El: ScanAdd },
+  { path: '/manager/expiring', title: 'Near Expiry', allow: [ROLES.MANAGER], El: NearExpiry },
+  { path: '/manager/emergency', title: 'Emergency Requirement', allow: [ROLES.MANAGER], El: EmergencyRequirement },
+  { path: '/manager/returns', title: 'Returns', allow: [ROLES.MANAGER], El: Returns },
+  { path: '/manager/approvals', title: 'Approvals', allow: [ROLES.MANAGER], El: Approvals },
+  { path: '/manager/analytics', title: 'Analytics', allow: [ROLES.MANAGER], El: Analytics },
+  { path: '/manager/reports', title: 'Reports', allow: [ROLES.MANAGER], El: Reports },
+  { path: '/manager/staff', title: 'Staff Management', allow: [ROLES.MANAGER], El: Users },
+  { path: '/manager/settings', title: 'Settings', allow: [ROLES.MANAGER], El: Settings },
+
+  // Cashier Directory Routes
+  { path: '/cashier', title: 'Dashboard', allow: [ROLES.USER], El: Dashboard, end: true },
+  { path: '/cashier/dashboard', title: 'Dashboard', allow: [ROLES.USER], El: Dashboard },
+  { path: '/cashier/billing', title: 'Billing & POS', allow: [ROLES.USER], El: Billing },
+  { path: '/cashier/inventory', title: 'Inventory Lookup', allow: [ROLES.USER], El: Inventory },
+  { path: '/cashier/scan', title: 'Scan & Add', allow: [ROLES.USER], El: ScanAdd },
+  { path: '/cashier/expiring', title: 'Near Expiry', allow: [ROLES.USER], El: NearExpiry },
+  { path: '/cashier/emergency', title: 'Emergency Stock', allow: [ROLES.USER], El: EmergencyRequirement },
+  { path: '/cashier/returns', title: 'Returns', allow: [ROLES.USER], El: Returns },
+  { path: '/cashier/settings', title: 'Settings', allow: [ROLES.USER], El: Settings },
 ]
 
 export default function App() {
@@ -106,9 +129,11 @@ export default function App() {
     ROUTES.find((r) => (r.end ? location.pathname === r.path : location.pathname.startsWith(r.path) && r.path !== '/')) ||
     ROUTES[0]
 
+  const homePath = getHomePath(role)
+
   return (
     <div className={`shell ${collapsed ? 'collapsed' : ''}`}>
-      <TopBar title={current?.title || ''} onMenu={toggleNav} />
+      <TopBar title={current?.title || ''} onMenu={toggleNav} homePath={homePath} />
 
       <div className="shell-body">
         <Sidebar role={role} open={navOpen} collapsed={collapsed} onClose={() => setNavOpen(false)} />
@@ -135,7 +160,20 @@ export default function App() {
                   }
                 />
               ))}
-              <Route path="*" element={<Navigate to={role === 'admin' ? '/admin' : '/'} replace />} />
+
+              {/* Default redirects for home or legacy links */}
+              <Route path="/" element={<Navigate to={homePath} replace />} />
+              <Route path="/dashboard" element={<Navigate to={role === 'user' ? '/cashier/dashboard' : '/manager/dashboard'} replace />} />
+              <Route path="/inventory" element={<Navigate to={role === 'user' ? '/cashier/inventory' : '/manager/inventory'} replace />} />
+              <Route path="/billing" element={<Navigate to={role === 'user' ? '/cashier/billing' : '/manager/billing'} replace />} />
+              <Route path="/scan" element={<Navigate to={role === 'user' ? '/cashier/scan' : '/manager/scan'} replace />} />
+              <Route path="/expiring" element={<Navigate to={role === 'user' ? '/cashier/expiring' : '/manager/expiring'} replace />} />
+              <Route path="/emergency-requirement" element={<Navigate to={role === 'user' ? '/cashier/emergency' : '/manager/emergency'} replace />} />
+              <Route path="/returns" element={<Navigate to={role === 'user' ? '/cashier/returns' : '/manager/returns'} replace />} />
+              <Route path="/onboarding" element={<Navigate to={role === 'admin' ? '/admin/onboarding' : homePath} replace />} />
+              <Route path="/shop-onboard" element={<Navigate to={role === 'admin' ? '/admin/onboarding' : homePath} replace />} />
+              <Route path="/settings" element={<Navigate to={role === 'admin' ? '/admin/settings' : role === 'user' ? '/cashier/settings' : '/manager/settings'} replace />} />
+              <Route path="*" element={<Navigate to={homePath} replace />} />
             </Routes>
           </AnimatePresence>
         </main>

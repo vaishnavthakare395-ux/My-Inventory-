@@ -1064,77 +1064,83 @@ export async function resolveEditRequest(id, approvalStatus, resolvedBy) {
 /* ---------------- emergency network ---------------- */
 
 export async function searchEmergencyStock({ queryText = '', userLocationId }) {
+  if (!auth.currentUser) return []
   const cleanQ = queryText.trim().toLowerCase()
 
-  // 1. Fetch all active batches with stock across network
-  const snap = await getDocs(query(col('batch_inventory'), where('qty', '>', 0)))
-  const allBatches = snapToRows(snap)
+  try {
+    // 1. Fetch all active batches with stock across network
+    const snap = await getDocs(query(col('batch_inventory'), where('qty', '>', 0)))
+    const allBatches = snapToRows(snap)
 
-  // 2. Filter out current shop's own stock
-  const otherBatches = allBatches.filter((b) => b.locationId !== userLocationId && b.qty > 0)
-  if (!otherBatches.length) return []
+    // 2. Filter out current shop's own stock
+    const otherBatches = allBatches.filter((b) => b.locationId !== userLocationId && b.qty > 0)
+    if (!otherBatches.length) return []
 
-  // 3. Fetch products & locations metadata
-  const skus = [...new Set(otherBatches.map((b) => b.sku))]
-  const [products, locSnap] = await Promise.all([
-    getProductsBySkus(skus),
-    getDocs(query(col('locations'))),
-  ])
+    // 3. Fetch products & locations metadata
+    const skus = [...new Set(otherBatches.map((b) => b.sku))]
+    const [products, locSnap] = await Promise.all([
+      getProductsBySkus(skus),
+      getDocs(query(col('locations'))),
+    ])
 
-  const productMap = Object.fromEntries(products.map((p) => [p.sku, p]))
-  const locMap = Object.fromEntries(
-    snapToRows(locSnap)
-      .filter((l) => (l.ownerEmail || l.mapVerified) && l.active !== false)
-      .map((l) => [l.id, l])
-  )
+    const productMap = Object.fromEntries(products.map((p) => [p.sku, p]))
+    const locMap = Object.fromEntries(
+      snapToRows(locSnap)
+        .filter((l) => l.active !== false)
+        .map((l) => [l.id, l])
+    )
 
-  // 4. Enrich and filter
-  const results = []
-  for (const b of otherBatches) {
-    const loc = locMap[b.locationId]
-    // Strictly skip any batch belonging to a shop not associated with our network
-    if (!loc) continue
+    // 4. Enrich and filter
+    const results = []
+    for (const b of otherBatches) {
+      const loc = locMap[b.locationId]
+      // Strictly skip any batch belonging to a shop not associated with our network
+      if (!loc) continue
 
-    const prod = productMap[b.sku] || {}
+      const prod = productMap[b.sku] || {}
 
-    if (cleanQ) {
-      const haystack = `${b.sku} ${prod.productName || ''} ${prod.category || ''} ${prod.brand || ''} ${b.batchNo} ${loc.name || ''}`.toLowerCase()
-      if (!haystack.includes(cleanQ)) continue
+      if (cleanQ) {
+        const haystack = `${b.sku} ${prod.productName || ''} ${prod.category || ''} ${prod.brand || ''} ${b.batchNo || ''} ${loc.name || ''}`.toLowerCase()
+        if (!haystack.includes(cleanQ)) continue
+      }
+
+      const buyingPrice = b.buyingPrice || prod.buyingPrice || 0
+      const sellingPrice = b.sellingPrice || prod.sellingPrice || 0
+      let emergencyPrice = b.emergencyPrice || prod.emergencyPrice || 0
+      if (!emergencyPrice && sellingPrice && buyingPrice && sellingPrice > buyingPrice) {
+        const normalProfit = sellingPrice - buyingPrice
+        // Strictly less than 60% of profit (50% margin)
+        emergencyPrice = Math.floor((buyingPrice + normalProfit * 0.5) * 100) / 100
+      }
+
+      results.push({
+        id: b.id,
+        batchId: b.id,
+        sku: b.sku,
+        batchNo: b.batchNo,
+        qty: b.qty,
+        expiryDate: b.expiryDate,
+        buyingPrice,
+        sellingPrice,
+        emergencyPrice,
+        productName: prod.productName || b.sku,
+        category: prod.category || 'General',
+        unit: prod.unit || 'units',
+        barcode: prod.barcode || '',
+        sellerLocationId: b.locationId,
+        sellerShopName: loc.name || 'Partner Shop',
+        sellerAddress: loc.address || '',
+        sellerPhone: loc.phone || loc.ownerPhone || '',
+        sellerCoordinates: loc.coordinates || (loc.lat && loc.lng ? { lat: loc.lat, lon: loc.lng } : null),
+        sellerShopType: loc.shopType || loc.type || 'general_store',
+      })
     }
 
-    const buyingPrice = b.buyingPrice || prod.buyingPrice || 0
-    const sellingPrice = b.sellingPrice || prod.sellingPrice || 0
-    let emergencyPrice = b.emergencyPrice || prod.emergencyPrice || 0
-    if (!emergencyPrice && sellingPrice && buyingPrice && sellingPrice > buyingPrice) {
-      const normalProfit = sellingPrice - buyingPrice
-      // Strictly less than 60% of profit (50% margin)
-      emergencyPrice = Math.floor((buyingPrice + normalProfit * 0.5) * 100) / 100
-    }
-
-    results.push({
-      id: b.id,
-      batchId: b.id,
-      sku: b.sku,
-      batchNo: b.batchNo,
-      qty: b.qty,
-      expiryDate: b.expiryDate,
-      buyingPrice,
-      sellingPrice,
-      emergencyPrice,
-      productName: prod.productName || b.sku,
-      category: prod.category || 'General',
-      unit: prod.unit || 'units',
-      barcode: prod.barcode || '',
-      sellerLocationId: b.locationId,
-      sellerShopName: loc.name || 'Partner Shop',
-      sellerAddress: loc.address || '',
-      sellerPhone: loc.phone || loc.ownerPhone || '',
-      sellerCoordinates: loc.coordinates || (loc.lat && loc.lng ? { lat: loc.lat, lon: loc.lng } : null),
-      sellerShopType: loc.shopType || loc.type || 'general_store',
-    })
+    return results
+  } catch (err) {
+    console.warn('searchEmergencyStock error:', err)
+    return []
   }
-
-  return results
 }
 
 export async function createEmergencyOrder({
@@ -1150,6 +1156,7 @@ export async function createEmergencyOrder({
   productName,
   batchId,
   batchNo,
+  expiryDate,
   qty,
   emergencyPrice,
   notes,
@@ -1159,77 +1166,189 @@ export async function createEmergencyOrder({
     throw new Error('Missing required emergency purchase parameters.')
   }
 
-  const batchRef = doc(db, 'batch_inventory', batchId)
   const orderRef = doc(col('emergency_orders'))
   const totalAmount = Math.round(qty * emergencyPrice * 100) / 100
 
-  await runTransaction(db, async (tx) => {
-    const bSnap = await tx.get(batchRef)
-    if (!bSnap.exists()) throw new Error('Seller batch not found.')
-    const currentQty = bSnap.data().qty || 0
-    if (currentQty < qty) {
-      throw new Error(`Insufficient stock available. Only ${currentQty} units left in seller's shop.`)
-    }
-
-    // Deduct stock from seller's batch
-    tx.update(batchRef, {
-      qty: increment(-qty),
-      updatedAt: serverTimestamp(),
-    })
-
-    // Create Emergency Order record
-    tx.set(orderRef, {
-      id: orderRef.id,
-      buyerLocationId,
-      buyerShopName: buyerShopName || '',
-      buyerEmail: buyerEmail || '',
-      buyerPhone: buyerPhone || '',
-      sellerLocationId,
-      sellerShopName: sellerShopName || '',
-      sellerEmail: sellerEmail || '',
-      sellerPhone: sellerPhone || '',
-      sku,
-      productName: productName || sku,
-      batchId,
-      batchNo: batchNo || '',
-      qty,
-      emergencyPrice: Number(emergencyPrice) || 0,
-      totalAmount,
-      notes: notes || '',
-      status: 'completed',
-      createdAt: serverTimestamp(),
-    })
-
-    // Write audit ledger entry for seller
-    writeLedger(tx, {
-      reason: LEDGER_REASONS.EMERGENCY_OUT,
-      sku,
-      locationId: sellerLocationId,
-      batchNo,
-      delta: -qty,
-      by: buyerEmail || 'emergency-buyer',
-      note: `Emergency sale to ${buyerShopName || buyerLocationId}`,
-      ref: orderRef.id,
-    })
+  // Create Emergency Order Request record with status 'requested'
+  await setDoc(orderRef, {
+    id: orderRef.id,
+    buyerLocationId,
+    buyerShopName: buyerShopName || '',
+    buyerEmail: buyerEmail || '',
+    buyerPhone: buyerPhone || '',
+    sellerLocationId,
+    sellerShopName: sellerShopName || '',
+    sellerEmail: sellerEmail || '',
+    sellerPhone: sellerPhone || '',
+    sku,
+    productName: productName || sku,
+    batchId,
+    batchNo: batchNo || '',
+    expiryDate: expiryDate || '',
+    qty,
+    emergencyPrice: Number(emergencyPrice) || 0,
+    totalAmount,
+    notes: notes || '',
+    status: 'requested', // 'requested' | 'accepted' | 'completed' | 'rejected'
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
   })
 
   return orderRef.id
 }
 
+export async function acceptEmergencyOrder({
+  orderId,
+  sellerEmail,
+}) {
+  if (!orderId) throw new Error('Order ID is required.')
+
+  const orderRef = doc(db, 'emergency_orders', orderId)
+
+  await runTransaction(db, async (tx) => {
+    const oSnap = await tx.get(orderRef)
+    if (!oSnap.exists()) throw new Error('Emergency order not found.')
+    const order = oSnap.data()
+
+    if (order.status !== 'requested') {
+      throw new Error(`Order cannot be fulfilled because status is "${order.status}".`)
+    }
+
+    const batchRef = doc(db, 'batch_inventory', order.batchId)
+    const bSnap = await tx.get(batchRef)
+    if (!bSnap.exists()) {
+      throw new Error('Associated batch no longer exists in seller inventory.')
+    }
+    const currentStock = bSnap.data().qty || 0
+    if (currentStock < order.qty) {
+      throw new Error(`Insufficient inventory: only ${currentStock} units remaining in seller's batch.`)
+    }
+
+    // Deduct stock from seller's batch
+    tx.update(batchRef, {
+      qty: increment(-order.qty),
+      updatedAt: serverTimestamp(),
+    })
+
+    // Update order status to 'accepted'
+    tx.update(orderRef, {
+      status: 'accepted',
+      acceptedAt: serverTimestamp(),
+      acceptedBy: sellerEmail || 'seller',
+      updatedAt: serverTimestamp(),
+    })
+
+    // Write audit ledger entry for seller
+    writeLedger(tx, {
+      reason: LEDGER_REASONS.EMERGENCY_OUT,
+      sku: order.sku,
+      locationId: order.sellerLocationId,
+      batchNo: order.batchNo,
+      delta: -order.qty,
+      by: sellerEmail || 'emergency-seller',
+      note: `Emergency request fulfilled for ${order.buyerShopName || order.buyerLocationId}`,
+      ref: orderRef.id,
+    })
+  })
+}
+
+export async function rejectEmergencyOrder({
+  orderId,
+  reason = '',
+  sellerEmail,
+}) {
+  if (!orderId) throw new Error('Order ID is required.')
+  const orderRef = doc(db, 'emergency_orders', orderId)
+  await updateDoc(orderRef, {
+    status: 'rejected',
+    rejectReason: reason || 'Declined by seller',
+    rejectedAt: serverTimestamp(),
+    rejectedBy: sellerEmail || 'seller',
+    updatedAt: serverTimestamp(),
+  })
+}
+
+export async function receiveEmergencyOrder({
+  orderId,
+  buyerEmail,
+}) {
+  if (!orderId) throw new Error('Order ID is required.')
+  const orderRef = doc(db, 'emergency_orders', orderId)
+
+  await runTransaction(db, async (tx) => {
+    const oSnap = await tx.get(orderRef)
+    if (!oSnap.exists()) throw new Error('Emergency order not found.')
+    const order = oSnap.data()
+
+    if (order.status !== 'accepted') {
+      throw new Error(`Only accepted orders can be received (current status: "${order.status}").`)
+    }
+
+    // Find or create batch at buyer shop location
+    const buyerBatchId = batchKey(order.sku, order.buyerLocationId, order.batchNo)
+    const buyerBatchRef = doc(db, 'batch_inventory', buyerBatchId)
+    const bSnap = await tx.get(buyerBatchRef)
+
+    if (bSnap.exists()) {
+      tx.update(buyerBatchRef, {
+        qty: increment(order.qty),
+        expiryDate: order.expiryDate || bSnap.data().expiryDate || '',
+        updatedAt: serverTimestamp(),
+      })
+    } else {
+      tx.set(buyerBatchRef, {
+        sku: order.sku,
+        locationId: order.buyerLocationId,
+        batchNo: order.batchNo,
+        qty: order.qty,
+        expiryDate: order.expiryDate || '',
+        buyingPrice: order.emergencyPrice || 0,
+        sellingPrice: order.emergencyPrice ? Math.round(order.emergencyPrice * 1.25 * 100) / 100 : 0,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      })
+    }
+
+    // Write audit ledger entry for buyer
+    writeLedger(tx, {
+      reason: LEDGER_REASONS.EMERGENCY_IN,
+      sku: order.sku,
+      locationId: order.buyerLocationId,
+      batchNo: order.batchNo,
+      delta: order.qty,
+      by: buyerEmail || 'emergency-buyer',
+      note: `Emergency stock received from ${order.sellerShopName || order.sellerLocationId}`,
+      ref: orderRef.id,
+    })
+
+    // Mark emergency order as completed
+    tx.update(orderRef, {
+      status: 'completed',
+      completedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    })
+  })
+}
+
 export async function listEmergencyOrders(locationId) {
-  if (!locationId) return []
-  const [buyerSnap, sellerSnap] = await Promise.all([
-    getDocs(query(col('emergency_orders'), where('buyerLocationId', '==', locationId))),
-    getDocs(query(col('emergency_orders'), where('sellerLocationId', '==', locationId))),
-  ])
+  if (!locationId || !auth.currentUser) return []
+  try {
+    const [buyerSnap, sellerSnap] = await Promise.all([
+      getDocs(query(col('emergency_orders'), where('buyerLocationId', '==', locationId))),
+      getDocs(query(col('emergency_orders'), where('sellerLocationId', '==', locationId))),
+    ])
 
-  const map = new Map()
-  for (const d of [...buyerSnap.docs, ...sellerSnap.docs]) {
-    map.set(d.id, { id: d.id, ...d.data() })
+    const map = new Map()
+    for (const d of [...buyerSnap.docs, ...sellerSnap.docs]) {
+      map.set(d.id, { id: d.id, ...d.data() })
+    }
+
+    const all = Array.from(map.values())
+    return all.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0))
+  } catch (err) {
+    console.warn('listEmergencyOrders error:', err)
+    return []
   }
-
-  const all = Array.from(map.values())
-  return all.sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0))
 }
 
 /* ---------------- customer bills / POS sales ---------------- */
