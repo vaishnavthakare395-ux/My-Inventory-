@@ -91,7 +91,7 @@ export default function Login() {
           <div className="la-brand">
             <Logo size={34} />
             <div className="la-brand-text">
-              <span className="la-title">StockFlow</span>
+              <span className="la-title">My Inventory</span>
               <span className="la-badge">Enterprise POS</span>
             </div>
           </div>
@@ -164,7 +164,7 @@ export default function Login() {
           </div>
 
           <div className="la-foot">
-            <span>StockFlow Hub &bull; Multi-Store Cloud</span>
+            <span>My Inventory &bull; Multi-Store Cloud</span>
             <span className="la-status-tag">Connected</span>
           </div>
         </aside>
@@ -207,7 +207,7 @@ export default function Login() {
           </div>
 
           <h1 style={{ fontSize: 22, margin: '0 0 6px' }}>
-            {isRegister ? 'Create Your Account' : 'Welcome to StockFlow'}
+            {isRegister ? 'Create Your Account' : 'Welcome to My Inventory'}
           </h1>
           <p className="muted" style={{ margin: '0 0 16px', fontSize: 13 }}>
             {isRegister
