@@ -1403,9 +1403,8 @@ export async function seedPartnerEmergencyStock(partnerLocations = []) {
   return seededBatches
 }
 
-export async function searchEmergencyStock({ queryText = '', userLocationId, currentUser }) {
-  const activeUser = currentUser || auth.currentUser
-  if (!activeUser) return []
+export async function searchEmergencyStock({ queryText = '', userLocationId }) {
+  if (!auth.currentUser) return []
   const cleanQ = queryText.trim().toLowerCase()
 
   try {
@@ -1424,23 +1423,13 @@ export async function searchEmergencyStock({ queryText = '', userLocationId, cur
       if (u.uid) userShopMap[u.uid] = u
     }
 
-    const currentEmail = (activeUser.email || '').toLowerCase()
-    const currentUid = activeUser.uid
+    const currentEmail = (auth.currentUser.email || '').toLowerCase()
+    const currentUid = auth.currentUser.uid
     const currentUserProfile = userShopMap[currentUid] || userShopMap[currentEmail]
     const effectiveUserLocId = userLocationId || currentUserProfile?.shopLocationId || currentUserProfile?.assignedLocationIds?.[0] || ''
 
-    // Collect all location IDs owned by the current user to prevent self-matching
-    const myOwnedLocationIds = new Set(
-      allLocations
-        .filter((l) => (l.ownerEmail && l.ownerEmail.toLowerCase() === currentEmail) || l.id === effectiveUserLocId)
-        .map((l) => l.id)
-    )
-    if (effectiveUserLocId) myOwnedLocationIds.add(effectiveUserLocId)
-    if (currentUserProfile?.shopLocationId) myOwnedLocationIds.add(currentUserProfile.shopLocationId)
-    for (const id of currentUserProfile?.assignedLocationIds || []) myOwnedLocationIds.add(id)
-
     const otherLocations = allLocations.filter(
-      (l) => !myOwnedLocationIds.has(l.id) && (!l.ownerEmail || l.ownerEmail.toLowerCase() !== currentEmail)
+      (l) => l.id !== effectiveUserLocId && (!l.ownerEmail || l.ownerEmail.toLowerCase() !== currentEmail)
     )
 
     // 3. Fetch all active batches across network
@@ -1448,7 +1437,7 @@ export async function searchEmergencyStock({ queryText = '', userLocationId, cur
     const allBatches = snapToRows(snap)
 
     const isOwnBatch = (b) => {
-      if (b.locationId && myOwnedLocationIds.has(b.locationId)) return true
+      if (effectiveUserLocId && b.locationId === effectiveUserLocId) return true
       if (b.ownerEmail && b.ownerEmail.toLowerCase() === currentEmail) return true
       if (b.by && b.by.toLowerCase() === currentEmail) return true
       if (b.createdBy && (b.createdBy === currentUid || b.createdBy.toLowerCase() === currentEmail)) return true
@@ -1456,16 +1445,6 @@ export async function searchEmergencyStock({ queryText = '', userLocationId, cur
     }
 
     let otherBatches = allBatches.filter((b) => Number(b.qty) > 0 && !isOwnBatch(b))
-
-    // 4. If no batches exist for other partner shops, seed sample batches
-    if (!otherBatches.length && otherLocations.length > 0) {
-      try {
-        const seeded = await seedPartnerEmergencyStock(otherLocations)
-        otherBatches = seeded.filter((b) => Number(b.qty) > 0 && !isOwnBatch(b))
-      } catch (seedErr) {
-        console.warn('Could not auto-seed partner emergency stock:', seedErr)
-      }
-    }
 
     if (!otherBatches.length) return []
 
@@ -1732,9 +1711,8 @@ export async function receiveEmergencyOrder({
   })
 }
 
-export async function listEmergencyOrders(locationId, currentUser) {
-  const activeUser = currentUser || auth.currentUser
-  if (!locationId || !activeUser) return []
+export async function listEmergencyOrders(locationId) {
+  if (!locationId || !auth.currentUser) return []
   try {
     const [buyerSnap, sellerSnap] = await Promise.all([
       getDocs(query(col('emergency_orders'), where('buyerLocationId', '==', locationId))),
