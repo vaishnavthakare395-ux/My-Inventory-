@@ -41,7 +41,7 @@ function extractCoords(loc) {
 
 export default function EmergencyRequirement() {
   const { activeLocation } = useWorkspace()
-  const { profile } = useAuth()
+  const { user, profile, loading: authLoading } = useAuth()
   const toast = useToast()
 
   // Tabs: 'search', 'outgoing', or 'incoming'
@@ -80,11 +80,13 @@ export default function EmergencyRequirement() {
 
   // Load emergency products across partner shops
   const loadSearch = async () => {
+    if (authLoading && !user) return
     setLoading(true)
     try {
       const data = await searchEmergencyStock({
         queryText,
-        userLocationId: activeLocation?.id || '',
+        userLocationId: activeLocation?.id || profile?.shopLocationId || '',
+        currentUser: user,
       })
       setResults(Array.isArray(data) ? data : [])
     } catch (err) {
@@ -97,13 +99,14 @@ export default function EmergencyRequirement() {
 
   // Load previous orders
   const loadOrders = async () => {
-    if (!activeLocation?.id) {
+    const effLocId = activeLocation?.id || profile?.shopLocationId
+    if (!effLocId) {
       setOrders([])
       return
     }
     setOrdersLoading(true)
     try {
-      const list = await listEmergencyOrders(activeLocation.id)
+      const list = await listEmergencyOrders(effLocId, user)
       setOrders(Array.isArray(list) ? list : [])
     } catch (err) {
       console.warn('Error loading emergency orders:', err)
@@ -114,16 +117,19 @@ export default function EmergencyRequirement() {
   }
 
   useEffect(() => {
-    loadSearch()
-  }, [queryText, activeLocation?.id])
+    if (!authLoading) {
+      loadSearch()
+    }
+  }, [queryText, activeLocation?.id, profile?.shopLocationId, user?.uid, authLoading])
 
   useEffect(() => {
+    if (authLoading) return
     if (activeTab === 'search') {
       loadSearch()
     } else {
       loadOrders()
     }
-  }, [activeTab, activeLocation?.id])
+  }, [activeTab, activeLocation?.id, profile?.shopLocationId, user?.uid, authLoading])
 
   // Filter and sort search results by proximity
   const filteredResults = useMemo(() => {

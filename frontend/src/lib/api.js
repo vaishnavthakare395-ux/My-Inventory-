@@ -629,8 +629,8 @@ export async function saveProduct(product) {
   if (bp > 0 && sp > bp && ep > 0) {
     const normalProfit = sp - bp
     const emergencyProfit = ep - bp
-    if (emergencyProfit >= 0.75 * normalProfit) {
-      throw new Error(`Emergency profit (₹${emergencyProfit.toFixed(2)}) must be strictly less than 75% of normal profit (₹${(0.75 * normalProfit).toFixed(2)}).`)
+    if (emergencyProfit >= 0.60 * normalProfit) {
+      throw new Error(`Emergency profit (₹${emergencyProfit.toFixed(2)}) must be strictly less than 60% of normal profit (₹${(0.60 * normalProfit).toFixed(2)}).`)
     }
   }
 
@@ -708,8 +708,8 @@ export async function addStock({ sku, locationId, batchNo, qty, expiryDate, by, 
   if (bPrice > 0 && sPrice > bPrice && ePrice > 0) {
     const normalProfit = sPrice - bPrice
     const emergencyProfit = ePrice - bPrice
-    if (emergencyProfit >= 0.75 * normalProfit) {
-      throw new Error(`Emergency profit (₹${emergencyProfit.toFixed(2)}) must be strictly less than 75% of normal profit (₹${(0.75 * normalProfit).toFixed(2)}).`)
+    if (emergencyProfit >= 0.60 * normalProfit) {
+      throw new Error(`Emergency profit (₹${emergencyProfit.toFixed(2)}) must be strictly less than 60% of normal profit (₹${(0.60 * normalProfit).toFixed(2)}).`)
     }
   }
 
@@ -1403,18 +1403,9 @@ export async function seedPartnerEmergencyStock(partnerLocations = []) {
   return seededBatches
 }
 
-export async function searchEmergencyStock({ queryText = '', userLocationId }) {
-  let currentUser = auth.currentUser
-  if (!currentUser) {
-    currentUser = await new Promise((resolve) => {
-      const unsub = onAuthStateChanged(auth, (u) => {
-        unsub()
-        resolve(u)
-      })
-      setTimeout(() => resolve(auth.currentUser), 1500)
-    })
-  }
-  if (!currentUser) return []
+export async function searchEmergencyStock({ queryText = '', userLocationId, currentUser }) {
+  const activeUser = currentUser || auth.currentUser
+  if (!activeUser) return []
   const cleanQ = queryText.trim().toLowerCase()
 
   try {
@@ -1433,13 +1424,23 @@ export async function searchEmergencyStock({ queryText = '', userLocationId }) {
       if (u.uid) userShopMap[u.uid] = u
     }
 
-    const currentEmail = (currentUser.email || '').toLowerCase()
-    const currentUid = currentUser.uid
+    const currentEmail = (activeUser.email || '').toLowerCase()
+    const currentUid = activeUser.uid
     const currentUserProfile = userShopMap[currentUid] || userShopMap[currentEmail]
     const effectiveUserLocId = userLocationId || currentUserProfile?.shopLocationId || currentUserProfile?.assignedLocationIds?.[0] || ''
 
+    // Collect all location IDs owned by the current user to prevent self-matching
+    const myOwnedLocationIds = new Set(
+      allLocations
+        .filter((l) => (l.ownerEmail && l.ownerEmail.toLowerCase() === currentEmail) || l.id === effectiveUserLocId)
+        .map((l) => l.id)
+    )
+    if (effectiveUserLocId) myOwnedLocationIds.add(effectiveUserLocId)
+    if (currentUserProfile?.shopLocationId) myOwnedLocationIds.add(currentUserProfile.shopLocationId)
+    for (const id of currentUserProfile?.assignedLocationIds || []) myOwnedLocationIds.add(id)
+
     const otherLocations = allLocations.filter(
-      (l) => l.id !== effectiveUserLocId && (!l.ownerEmail || l.ownerEmail.toLowerCase() !== currentEmail)
+      (l) => !myOwnedLocationIds.has(l.id) && (!l.ownerEmail || l.ownerEmail.toLowerCase() !== currentEmail)
     )
 
     // 3. Fetch all active batches across network
@@ -1447,8 +1448,10 @@ export async function searchEmergencyStock({ queryText = '', userLocationId }) {
     const allBatches = snapToRows(snap)
 
     const isOwnBatch = (b) => {
-      if (effectiveUserLocId && b.locationId === effectiveUserLocId) return true
-      if (currentEmail && b.ownerEmail && b.ownerEmail.toLowerCase() === currentEmail && (!b.locationId || b.locationId === effectiveUserLocId)) return true
+      if (b.locationId && myOwnedLocationIds.has(b.locationId)) return true
+      if (b.ownerEmail && b.ownerEmail.toLowerCase() === currentEmail) return true
+      if (b.by && b.by.toLowerCase() === currentEmail) return true
+      if (b.createdBy && (b.createdBy === currentUid || b.createdBy.toLowerCase() === currentEmail)) return true
       return false
     }
 
@@ -1729,8 +1732,9 @@ export async function receiveEmergencyOrder({
   })
 }
 
-export async function listEmergencyOrders(locationId) {
-  if (!locationId || !auth.currentUser) return []
+export async function listEmergencyOrders(locationId, currentUser) {
+  const activeUser = currentUser || auth.currentUser
+  if (!locationId || !activeUser) return []
   try {
     const [buyerSnap, sellerSnap] = await Promise.all([
       getDocs(query(col('emergency_orders'), where('buyerLocationId', '==', locationId))),
