@@ -155,8 +155,51 @@ export async function listLocations() {
       phone: ownerPhone,
       shopType,
       registeredByAdmin: true,
+      coordinates: l.coordinates || u?.coordinates || null,
+      address: l.address || u?.verifiedAddress || '',
     }
   })
+
+  // Also include any registered users with a shopName who don't already have a location row
+  for (const doc of usersSnap.docs || []) {
+    const data = doc.data()
+    const email = (data.email || '').toLowerCase()
+    if (email.endsWith('@stockflow.dev') || email.endsWith('@stockflow.local')) continue
+    if (data.role === 'admin' && !data.shopName) continue
+    if (!data.shopName) continue
+
+    const locId = data.shopLocationId || (data.assignedLocationIds && data.assignedLocationIds[0]) || `SHOP_${doc.id}`
+    const alreadyExists = rows.some(
+      (r) =>
+        r.id === locId ||
+        (r.ownerEmail && r.ownerEmail.toLowerCase() === email) ||
+        (r.name && r.name.toLowerCase().trim() === data.shopName.toLowerCase().trim())
+    )
+
+    if (!alreadyExists) {
+      rows.push({
+        id: locId,
+        code: `SHOP-${locId.slice(-4)}`,
+        name: data.shopName,
+        type: data.shopType || 'mart',
+        shopType: data.shopType || 'mart',
+        address: data.verifiedAddress || data.address || '',
+        verifiedAddress: data.verifiedAddress || data.address || '',
+        coordinates: data.coordinates || null,
+        googleMapsUrl: data.googleMapsUrl || '',
+        ownerEmail: data.email || '',
+        ownerName: data.name || data.shopName,
+        registeredName: data.name || data.shopName,
+        phone: data.phone || '',
+        ownerPhone: data.phone || '',
+        gstNumber: data.gstNumber || '',
+        registeredByAdmin: true,
+        active: true,
+      })
+    }
+  }
+
+  return rows
 }
 
 export async function saveLocation(location) {

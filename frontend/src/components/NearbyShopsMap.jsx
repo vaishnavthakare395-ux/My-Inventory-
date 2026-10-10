@@ -11,7 +11,7 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
   const circleLayerRef = useRef(null)
   const meshLinesLayerRef = useRef(null)
 
-  const [radiusKm, setRadiusKm] = useState(10) // default 10 km
+  const [radiusKm, setRadiusKm] = useState('all') // default to show all associated network partner shops
   const [selectedShopId, setSelectedShopId] = useState(null)
 
   // Determine current shop reference point
@@ -178,26 +178,43 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
     const map = mapInstanceRef.current
     if (!map) return
 
-    // Center map on current shop
-    map.setView([currentCoords.lat, currentCoords.lon], radiusKm <= 5 ? 13 : radiusKm <= 10 ? 12 : 11)
+    // Center / fit map
+    if (radiusKm === 'all') {
+      const points = []
+      if (currentCoords?.lat && currentCoords?.lon) points.push([currentCoords.lat, currentCoords.lon])
+      otherShopsInRadius.forEach((s) => {
+        if (s.lat && s.lon) points.push([s.lat, s.lon])
+      })
+      if (points.length > 1) {
+        map.fitBounds(L.latLngBounds(points), { padding: [45, 45], maxZoom: 14 })
+      } else if (currentCoords?.lat && currentCoords?.lon) {
+        map.setView([currentCoords.lat, currentCoords.lon], 12)
+      }
+    } else {
+      const rNum = Number(radiusKm) || 10
+      map.setView([currentCoords.lat, currentCoords.lon], rNum <= 5 ? 13 : rNum <= 10 ? 12 : 11)
+    }
 
     // Clear previous markers, circle, and mesh lines
     if (circleLayerRef.current) circleLayerRef.current.clearLayers()
     if (meshLinesLayerRef.current) meshLinesLayerRef.current.clearLayers()
     if (markersLayerRef.current) markersLayerRef.current.clearLayers()
 
-    // 1. Draw radius circle
-    const circle = L.circle([currentCoords.lat, currentCoords.lon], {
-      radius: radiusKm * 1000, // convert km to meters
-      color: '#6366f1',
-      weight: 2,
-      dashArray: '6, 8',
-      fillColor: '#6366f1',
-      fillOpacity: 0.07,
-    })
+    // 1. Draw radius circle (only if a specific numeric radius is active)
+    if (radiusKm !== 'all' && Number(radiusKm) > 0) {
+      const rNum = Number(radiusKm)
+      const circle = L.circle([currentCoords.lat, currentCoords.lon], {
+        radius: rNum * 1000, // convert km to meters
+        color: '#6366f1',
+        weight: 2,
+        dashArray: '6, 8',
+        fillColor: '#6366f1',
+        fillOpacity: 0.07,
+      })
 
-    circle.bindTooltip(`${radiusKm} km Radius Area`, { permanent: false, direction: 'top' })
-    circle.addTo(circleLayerRef.current)
+      circle.bindTooltip(`${rNum} km Radius Area`, { permanent: false, direction: 'top' })
+      circle.addTo(circleLayerRef.current)
+    }
 
     // 2. Add Current Shop Marker (glowing indigo beacon)
     const currentShopHtml = `
