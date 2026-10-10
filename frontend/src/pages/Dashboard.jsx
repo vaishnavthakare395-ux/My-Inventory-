@@ -125,6 +125,43 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Emergency Requirement Network Quick Access */}
+      <div
+        className="card"
+        style={{
+          marginBottom: 16,
+          background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.07) 0%, rgba(99, 102, 241, 0.07) 100%)',
+          border: '1px solid rgba(239, 68, 68, 0.25)',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: 12,
+          padding: '12px 18px',
+          borderRadius: 8,
+        }}
+      >
+        <div className="row" style={{ gap: 10, alignItems: 'center' }}>
+          <span style={{ fontSize: 24 }}>⚡</span>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 13.5, color: 'var(--fg)' }}>
+              Emergency Requirement Network
+            </div>
+            <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>
+              Need urgent stock? Search required products across associated partner shops &amp; buy/sell at discounted emergency prices.
+            </div>
+          </div>
+        </div>
+        <Link
+          to={profile?.role === 'user' ? '/cashier/emergency' : '/manager/emergency'}
+          className="btn primary sm"
+          style={{ fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6 }}
+        >
+          <span>🔍 Open Emergency Network</span>
+          <span>→</span>
+        </Link>
+      </div>
+
       <div className="card">
         <div className="row spread" style={{ marginBottom: 4 }}>
           <h3 style={{ margin: 0 }}>Associated Shops in Your Area</h3>

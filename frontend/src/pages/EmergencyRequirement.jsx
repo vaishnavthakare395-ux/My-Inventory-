@@ -1,6 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
-import { collection, onSnapshot } from 'firebase/firestore'
-import { db } from '../lib/firebase'
+import { useState, useEffect, useMemo } from 'react'
 import { useWorkspace } from '../lib/WorkspaceContext'
 import { useAuth } from '../lib/AuthContext'
 import { useToast } from '../lib/ToastContext'
@@ -81,12 +79,12 @@ export default function EmergencyRequirement() {
   }, [activeLocation, profile])
 
   // Load emergency products across partner shops
-  const loadSearch = useCallback(async () => {
+  const loadSearch = async () => {
     setLoading(true)
     try {
       const data = await searchEmergencyStock({
         queryText,
-        userLocationId: activeLocation?.id || profile?.shopLocationId || '',
+        userLocationId: activeLocation?.id || '',
       })
       setResults(Array.isArray(data) ? data : [])
     } catch (err) {
@@ -95,18 +93,17 @@ export default function EmergencyRequirement() {
     } finally {
       setLoading(false)
     }
-  }, [queryText, activeLocation?.id, profile?.shopLocationId])
+  }
 
   // Load previous orders
-  const loadOrders = useCallback(async () => {
-    const locId = activeLocation?.id || profile?.shopLocationId
-    if (!locId) {
+  const loadOrders = async () => {
+    if (!activeLocation?.id) {
       setOrders([])
       return
     }
     setOrdersLoading(true)
     try {
-      const list = await listEmergencyOrders(locId)
+      const list = await listEmergencyOrders(activeLocation.id)
       setOrders(Array.isArray(list) ? list : [])
     } catch (err) {
       console.warn('Error loading emergency orders:', err)
@@ -114,11 +111,11 @@ export default function EmergencyRequirement() {
     } finally {
       setOrdersLoading(false)
     }
-  }, [activeLocation?.id, profile?.shopLocationId])
+  }
 
   useEffect(() => {
     loadSearch()
-  }, [loadSearch])
+  }, [queryText, activeLocation?.id])
 
   useEffect(() => {
     if (activeTab === 'search') {
@@ -126,25 +123,7 @@ export default function EmergencyRequirement() {
     } else {
       loadOrders()
     }
-  }, [activeTab, loadSearch, loadOrders])
-
-  // Real-time listener: updates automatically whenever new batches are added anywhere across partner network!
-  useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'batch_inventory'), () => {
-      loadSearch()
-    }, (err) => console.warn('batch_inventory listener err:', err))
-    return () => unsub()
-  }, [loadSearch])
-
-  // Window focus listener: re-checks immediately when user switches tabs/windows
-  useEffect(() => {
-    const handleFocus = () => {
-      loadSearch()
-      if (activeTab !== 'search') loadOrders()
-    }
-    window.addEventListener('focus', handleFocus)
-    return () => window.removeEventListener('focus', handleFocus)
-  }, [loadSearch, loadOrders, activeTab])
+  }, [activeTab, activeLocation?.id])
 
   // Filter and sort search results by proximity
   const filteredResults = useMemo(() => {
@@ -316,11 +295,55 @@ export default function EmergencyRequirement() {
           <div className="row" style={{ gap: 8, alignItems: 'center' }}>
             <h1 style={{ margin: 0 }}>Emergency Requirement</h1>
             <span className="badge sm" style={{ background: '#ef4444', color: '#fff', fontWeight: 700 }}>
-              ⚡ Urgent Network
+              ⚡ Associated Shops Network
             </span>
           </div>
           <div className="sub">
-            Search urgent products across associated partner shops &amp; buy at discounted emergency prices
+            Inter-shop emergency marketplace — one shopkeeper searches for products required, and partner shopkeepers sell at special emergency wholesale prices.
+          </div>
+        </div>
+      </div>
+
+      {/* Network Explanation Banner */}
+      <div
+        className="card"
+        style={{
+          marginBottom: 16,
+          background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.08) 0%, rgba(99, 102, 241, 0.08) 100%)',
+          border: '1px solid rgba(239, 68, 68, 0.25)',
+          padding: '14px 18px',
+          borderRadius: 10,
+        }}
+      >
+        <div className="row spread wrap" style={{ gap: 12, alignItems: 'center' }}>
+          <div>
+            <div style={{ fontWeight: 700, fontSize: 14.5, color: 'var(--fg)' }}>
+              🤝 Associated Shops Peer-to-Peer Emergency Marketplace
+            </div>
+            <div style={{ fontSize: 12.5, color: 'var(--muted)', marginTop: 4, maxWidth: 680 }}>
+              When your shop has an urgent stock shortage, search and source directly from other registered associated stores at their discounted <b>Emergency Price</b>.
+            </div>
+          </div>
+          <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+            <span className="badge sm" style={{ background: 'rgba(34, 197, 94, 0.15)', color: '#22c55e', border: '1px solid #22c55e', fontWeight: 700 }}>
+              🏪 Active Store: {activeLocation?.name || 'Your Shop'}
+            </span>
+          </div>
+        </div>
+
+        {/* 3 Step Workflow */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 10, marginTop: 12, paddingTop: 10, borderTop: '1px solid rgba(255,255,255,0.08)' }}>
+          <div style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 16 }}>🔍</span>
+            <span><b>1. Search Required Product:</b> Find needed stock in partner shops.</span>
+          </div>
+          <div style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 16 }}>🏷️</span>
+            <span><b>2. Emergency Wholesale Price:</b> Buy at discounted inter-shop rates.</span>
+          </div>
+          <div style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 16 }}>🤝</span>
+            <span><b>3. Shopkeeper-to-Shopkeeper:</b> Seller fulfills &amp; transfers stock.</span>
           </div>
         </div>
       </div>
@@ -331,7 +354,7 @@ export default function EmergencyRequirement() {
           className={`btn ${activeTab === 'search' ? 'primary' : ''}`}
           onClick={() => setActiveTab('search')}
         >
-          🔍 Search &amp; Buy Emergency Stock
+          🔍 Search Required Stock ({filteredResults.length} in Network)
         </button>
         <button
           className={`btn ${activeTab === 'outgoing' ? 'primary' : ''}`}
@@ -344,7 +367,7 @@ export default function EmergencyRequirement() {
           onClick={() => setActiveTab('incoming')}
           style={{ position: 'relative' }}
         >
-          📥 Incoming Emergency Requests ({incomingOrders.length}
+          📥 Sell to Partner Shops ({incomingOrders.length}
           {pendingIncomingCount > 0 && (
             <span style={{ marginLeft: 6, background: '#ef4444', color: '#fff', borderRadius: 10, padding: '1px 6px', fontSize: 11, fontWeight: 700 }}>
               {pendingIncomingCount} new
@@ -427,12 +450,12 @@ export default function EmergencyRequirement() {
                 <table className="t">
                   <thead>
                     <tr>
-                      <th>Product &amp; Category</th>
-                      <th>Partner Shop &amp; Distance</th>
+                      <th>Product Required &amp; Category</th>
+                      <th>Selling Associated Shop &amp; Distance</th>
                       <th>Available Stock</th>
                       <th>Normal Retail</th>
-                      <th>Emergency Price</th>
-                      <th>Savings</th>
+                      <th>⚡ Emergency Price</th>
+                      <th>Inter-Shop Savings</th>
                       <th>Action</th>
                     </tr>
                   </thead>
@@ -532,9 +555,9 @@ export default function EmergencyRequirement() {
                                 setPurchaseQty(1)
                                 setUrgencyNote('')
                               }}
-                              style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4 }}
+                              style={{ whiteSpace: 'nowrap', display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 700 }}
                             >
-                              <span>⚡ Buy Emergency</span>
+                              <span>⚡ Buy at Emergency Price</span>
                             </button>
                           </td>
                         </tr>
@@ -822,13 +845,13 @@ export default function EmergencyRequirement() {
             <div className="row spread" style={{ marginBottom: 12 }}>
               <div className="row" style={{ gap: 8, alignItems: 'center' }}>
                 <span style={{ fontSize: 20 }}>⚡</span>
-                <h3 style={{ margin: 0, color: '#ef4444' }}>Send Emergency Stock Request</h3>
+                <h3 style={{ margin: 0, color: '#ef4444' }}>Buy at Emergency Price from Associated Shop</h3>
               </div>
               <button className="btn sm" onClick={() => !buyingBusy && setSelectedItem(null)}>✕</button>
             </div>
 
             <div style={{ fontSize: 12.5, color: 'var(--muted)', marginBottom: 12 }}>
-              Send an instant emergency request to <b>{selectedItem.sellerShopName}</b>. Once accepted by the shopkeeper, the stock will be deducted from their inventory and reserved for you.
+              Send an instant emergency request to <b>{selectedItem.sellerShopName}</b> at their special Emergency Price. Once accepted by the partner shopkeeper, the stock will be deducted from their inventory and transferred to your shop.
             </div>
 
             {/* Product & Seller Details */}
