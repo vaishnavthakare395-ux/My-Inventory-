@@ -263,10 +263,16 @@ export default function NearExpiry() {
     setMsgTab(channel)
   }
 
-  // 1-Click Instant SMS to Account Holder
-  const handleInstantSendSms = () => {
-    const expiringNow = enriched.filter((b) => b.days !== null && b.days <= EXPIRY_WINDOWS.WARN)
-    const itemsToAlert = expiringNow.length > 0 ? expiringNow : filtered
+  // Direct SMS to Account Holder (no modal asking)
+  const handleInstantSendSms = (singleItem = null) => {
+    let itemsToAlert = []
+    if (singleItem) {
+      itemsToAlert = [singleItem]
+    } else {
+      const expiringNow = enriched.filter((b) => b.days !== null && b.days <= EXPIRY_WINDOWS.WARN)
+      itemsToAlert = expiringNow.length > 0 ? expiringNow : filtered
+    }
+
     if (!itemsToAlert.length) {
       return toast.info('No expiring or expired batches to alert about.')
     }
@@ -286,9 +292,7 @@ export default function NearExpiry() {
     const shopName = activeLocation?.name || 'My Store'
 
     if (!defaultPhone) {
-      handleOpenNotifyModal(null, 'sms')
-      toast.err('Please enter the account holder mobile number to send SMS.')
-      return
+      return toast.err(`No mobile number registered for ${defaultName}. Please add a contact number in profile.`)
     }
 
     const message = buildSmsExpiryMessage({
@@ -302,7 +306,7 @@ export default function NearExpiry() {
       navigator.clipboard.writeText(message).catch(() => {})
     }
 
-    window.open(url, '_self')
+    window.location.href = url
 
     logExpiryAlert({
       locationId: activeLocation?.id,
@@ -315,7 +319,7 @@ export default function NearExpiry() {
       by: profile?.email,
     })
 
-    toast.ok(`Opening SMS to ${defaultName} (${defaultPhone})! (Message copied to clipboard)`)
+    toast.ok(`SMS sent directly to ${defaultName} (${defaultPhone})!`)
   }
 
   const handleSendWhatsApp = () => {
@@ -775,8 +779,8 @@ export default function NearExpiry() {
                         <div className="row" style={{ gap: 6 }}>
                           <button
                             className="btn sm"
-                            onClick={() => handleOpenNotifyModal(r, 'sms')}
-                            title="Send SMS alert to account holder about this expiring batch"
+                            onClick={() => handleInstantSendSms(r)}
+                            title="Directly send SMS alert for this expiring batch to account holder's mobile number"
                             style={{
                               padding: '4px 8px',
                               fontSize: 11.5,

@@ -3,6 +3,8 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/AuthContext'
 import { useWorkspace } from '../lib/WorkspaceContext'
 import { useAlerts } from '../lib/AlertsContext'
+import { useToast } from '../lib/ToastContext'
+import { buildSmsExpiryMessage, getSmsUrl } from '../lib/expiryNotifications'
 import { stockByLocation } from '../lib/api'
 import NearbyShopsMap from '../components/NearbyShopsMap'
 import AssociatedShopsTable from '../components/AssociatedShopsTable'
@@ -12,6 +14,32 @@ export default function Dashboard() {
   const { activeLocation } = useWorkspace()
   const { alerts, counts, batches } = useAlerts()
   const [totals, setTotals] = useState({})
+  const toast = useToast()
+
+  const sendExpirySmsDirect = () => {
+    const phone = activeLocation?.ownerPhone || activeLocation?.phone || profile?.phone || ''
+    const name = activeLocation?.ownerName || profile?.name || 'Account Holder'
+    const shopName = activeLocation?.name || 'My Store'
+    const expiringBatches = batches?.filter((b) => b.isExpired || b.isNearExpiry) || []
+
+    if (!phone) {
+      toast.err('No mobile number registered for the account holder.')
+      return
+    }
+
+    const message = buildSmsExpiryMessage({
+      shopName,
+      accountHolderName: name,
+      items: expiringBatches,
+    })
+
+    const url = getSmsUrl(phone, message)
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(message).catch(() => {})
+    }
+    window.location.href = url
+    toast.ok(`SMS sent directly to ${name} (${phone})!`)
+  }
 
   useEffect(() => {
     stockByLocation(myLocationIds.length ? myLocationIds : null).then(setTotals).catch(() => setTotals({}))
@@ -67,23 +95,33 @@ export default function Dashboard() {
               </div>
             </div>
           </div>
-          <Link
-            to="/near-expiry"
-            className="btn sm"
-            style={{
-              background: '#0284c7',
-              color: '#ffffff',
-              border: 'none',
-              fontWeight: 700,
-              textDecoration: 'none',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 6,
-              boxShadow: '0 2px 6px rgba(2, 132, 199, 0.3)',
-            }}
-          >
-            ✉️ Send Expiry SMS to Account Holder
-          </Link>
+          <div className="row wrap" style={{ gap: 8, alignItems: 'center' }}>
+            <button
+              className="btn sm"
+              onClick={sendExpirySmsDirect}
+              style={{
+                background: '#0284c7',
+                color: '#ffffff',
+                border: 'none',
+                fontWeight: 700,
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: 6,
+                boxShadow: '0 2px 6px rgba(2, 132, 199, 0.3)',
+                cursor: 'pointer',
+              }}
+              title="Send SMS alert for near-expiry products directly to the account holder's registered number"
+            >
+              ✉️ Send SMS Directly to Account Holder
+            </button>
+            <Link
+              to="/near-expiry"
+              className="btn ghost sm"
+              style={{ fontSize: 11.5 }}
+            >
+              View Batches →
+            </Link>
+          </div>
         </div>
       )}
 
