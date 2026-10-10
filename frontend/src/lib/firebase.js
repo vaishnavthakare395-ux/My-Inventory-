@@ -17,6 +17,11 @@ export const db = getFirestore(app)
 
 // Local development against the Firebase emulators when explicitly enabled.
 if (import.meta.env.VITE_USE_EMULATORS === 'true') {
-  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true })
+  // Only connect auth emulator if explicitly requested (e.g. for offline mock tests).
+  // By default, real Google OAuth is preserved so the browser displays actual Google accounts from the laptop.
+  if (import.meta.env.VITE_USE_AUTH_EMULATOR === 'true') {
+    connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true })
+  }
   connectFirestoreEmulator(db, '127.0.0.1', 8080)
 }
+

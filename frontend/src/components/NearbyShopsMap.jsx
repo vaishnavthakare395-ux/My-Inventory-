@@ -2,39 +2,14 @@ import { useEffect, useRef, useState, useMemo } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import { SHOP_TYPES } from '../lib/constants'
-
-// Calculate Great Circle distance between two coordinate pairs in kilometers
-function getDistanceKm(lat1, lon1, lat2, lon2) {
-  if (lat1 == null || lon1 == null || lat2 == null || lon2 == null) return null
-  const R = 6371 // Earth radius in km
-  const toRad = (deg) => (deg * Math.PI) / 180
-  const dLat = toRad(lat2 - lat1)
-  const dLon = toRad(lon2 - lon1)
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
-    Math.sin(dLon / 2) * Math.sin(dLon / 2)
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-  return parseFloat((R * c).toFixed(2))
-}
-
-// Universal coordinate extractor supporting both lat/lng and coordinates.lat/lon (string or number)
-function extractCoords(loc) {
-  if (!loc) return null
-  const rawLat = loc.lat ?? loc.coordinates?.lat
-  const rawLon = loc.lon ?? loc.lng ?? loc.coordinates?.lon ?? loc.coordinates?.lng
-  if (rawLat == null || rawLon == null) return null
-  const lat = parseFloat(rawLat)
-  const lon = parseFloat(rawLon)
-  if (isNaN(lat) || isNaN(lon)) return null
-  return { lat, lon }
-}
+import { getDistanceKm, extractCoords, generateMeshEdges } from '../lib/geoMesh'
 
 export default function NearbyShopsMap({ locations = [], currentShop, currentProfile }) {
   const mapContainerRef = useRef(null)
   const mapInstanceRef = useRef(null)
   const markersLayerRef = useRef(null)
   const circleLayerRef = useRef(null)
+  const meshLinesLayerRef = useRef(null)
 
   const [radiusKm, setRadiusKm] = useState(10) // default 10 km
   const [selectedShopId, setSelectedShopId] = useState(null)
@@ -106,12 +81,27 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
 
         const dist = isCurrent ? 0 : getDistanceKm(currentCoords.lat, currentCoords.lon, lat, lon)
 
+        const emailPrefix = loc.ownerEmail ? loc.ownerEmail.split('@')[0] : ''
+        const cleanEmailName = emailPrefix
+          ? (emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1)).replace(/[0-9._-]+/g, ' ').replace(/\s+/g, ' ').trim()
+          : ''
+        const currentUserName = isCurrent ? (currentProfile?.name || currentProfile?.displayName || '') : ''
+        const ownerName =
+          (loc.registeredName && loc.registeredName !== 'Store Owner' ? loc.registeredName : '') ||
+          (loc.ownerName && loc.ownerName !== 'Store Owner' ? loc.ownerName : '') ||
+          currentUserName ||
+          loc.contactPerson ||
+          cleanEmailName ||
+          (emailPrefix ? emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1) : '') ||
+          ''
+
         return {
           ...loc,
           lat,
           lon,
           isCurrent,
           distanceKm: dist,
+          ownerName: ownerName || loc.ownerName || '',
           iconEmoji: getShopIcon(loc.shopType || loc.type),
         }
       })
@@ -156,9 +146,13 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
         attribution: '&copy; OpenStreetMap contributors',
       }).addTo(map)
 
-      markersLayerRef.current = L.layerGroup().addTo(map)
       circleLayerRef.current = L.layerGroup().addTo(map)
+      meshLinesLayerRef.current = L.layerGroup().addTo(map)
+      markersLayerRef.current = L.layerGroup().addTo(map)
       mapInstanceRef.current = map
+
+      // Reset selection when clicking map canvas
+      map.on('click', () => setSelectedShopId(null))
     }
 
     return () => {
@@ -166,7 +160,7 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
     }
   }, [])
 
-  // Update Markers and Radius Circle when data or radius changes
+  // Update Markers, Mesh Network Lines, and Radius Circle when data or radius changes
   useEffect(() => {
     const map = mapInstanceRef.current
     if (!map) return
@@ -174,9 +168,10 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
     // Center map on current shop
     map.setView([currentCoords.lat, currentCoords.lon], radiusKm <= 5 ? 13 : radiusKm <= 10 ? 12 : 11)
 
-    // Clear previous markers and circle
-    if (markersLayerRef.current) markersLayerRef.current.clearLayers()
+    // Clear previous markers, circle, and mesh lines
     if (circleLayerRef.current) circleLayerRef.current.clearLayers()
+    if (meshLinesLayerRef.current) meshLinesLayerRef.current.clearLayers()
+    if (markersLayerRef.current) markersLayerRef.current.clearLayers()
 
     // 1. Draw radius circle
     const circle = L.circle([currentCoords.lat, currentCoords.lon], {
@@ -227,8 +222,57 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
     `)
     curMarker.addTo(markersLayerRef.current)
 
-    // 3. Add Associated Partner Shops within Radius
-    otherShopsInRadius.forEach((shop, index) => {
+    // 3. Precalculate plotted coordinates for partner shops within radius
+    const plottedPartners = otherShopsInRadius.map((shop, index) => {
+      let plotLat = shop.lat
+      let plotLon = shop.lon
+      if (Math.abs(shop.lat - currentCoords.lat) < 0.0003 && Math.abs(shop.lon - currentCoords.lon) < 0.0003) {
+        const angle = ((index + 1) * 2 * Math.PI) / (otherShopsInRadius.length + 1)
+        plotLat += Math.cos(angle) * 0.0018 // ~150 meters offset so pins don't overlap
+        plotLon += Math.sin(angle) * 0.0018
+      }
+      return {
+        ...shop,
+        plotLat,
+        plotLon,
+      }
+    })
+
+    // 4. Draw Mesh Network Lines: lightly visible lines interconnecting partner shops
+    const centerNode = {
+      id: currentShop?.id || 'current_user_shop',
+      name: currentShop?.name || currentCoords.name,
+      plotLat: currentCoords.lat,
+      plotLon: currentCoords.lon,
+      isCurrent: true,
+    }
+
+    const meshEdges = generateMeshEdges(centerNode, plottedPartners, getDistanceKm)
+
+    meshEdges.forEach(({ u, v }) => {
+      const isConnectedToSelected =
+        selectedShopId && (u.id === selectedShopId || v.id === selectedShopId)
+
+      const line = L.polyline(
+        [
+          [u.plotLat, u.plotLon],
+          [v.plotLat, v.plotLon],
+        ],
+        {
+          color: isConnectedToSelected ? '#10b981' : '#059669',
+          weight: isConnectedToSelected ? 2.5 : 1.5,
+          opacity: isConnectedToSelected ? 0.8 : 0.35,
+          dashArray: isConnectedToSelected ? null : '5, 7',
+          smoothFactor: 1,
+          interactive: false,
+          className: 'mesh-network-line',
+        }
+      )
+      line.addTo(meshLinesLayerRef.current)
+    })
+
+    // 5. Add Associated Partner Shops within Radius
+    plottedPartners.forEach((shop) => {
       const isSelected = selectedShopId === shop.id
       const markerColor = isSelected ? '#ec4899' : '#10b981'
       const partnerShopHtml = `
@@ -258,18 +302,9 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
         popupAnchor: [0, -20],
       })
 
-      // If this shop has nearly identical coordinates to current shop or another shop, apply slight radial offset so pin is visible
-      let plotLat = shop.lat
-      let plotLon = shop.lon
-      if (Math.abs(shop.lat - currentCoords.lat) < 0.0003 && Math.abs(shop.lon - currentCoords.lon) < 0.0003) {
-        const angle = ((index + 1) * 2 * Math.PI) / (otherShopsInRadius.length + 1)
-        plotLat += Math.cos(angle) * 0.0018 // ~150 meters offset so pins don't overlap
-        plotLon += Math.sin(angle) * 0.0018
-      }
-
       const distLabel = shop.distanceKm < 0.1 ? '< 0.1 km (Local)' : `${shop.distanceKm} km away`
 
-      const marker = L.marker([plotLat, plotLon], { icon: partnerIcon })
+      const marker = L.marker([shop.plotLat, shop.plotLon], { icon: partnerIcon })
       marker.bindPopup(`
         <div style="font-family: inherit; min-width: 210px; padding: 4px;">
           <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
@@ -297,7 +332,10 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
           </div>
         </div>
       `)
-      marker.on('click', () => setSelectedShopId(shop.id))
+      marker.on('click', (e) => {
+        L.DomEvent.stopPropagation(e)
+        setSelectedShopId(shop.id)
+      })
       marker.addTo(markersLayerRef.current)
     })
   }, [currentCoords, otherShopsInRadius, radiusKm, selectedShopId])
@@ -314,9 +352,16 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
     <div className="nearby-map-wrap" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       {/* Header controls & radius filter */}
       <div className="row spread wrap" style={{ gap: 8, alignItems: 'center' }}>
-        <div className="row" style={{ gap: 6 }}>
+        <div className="row" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           <span className="badge green sm" style={{ fontWeight: 600 }}>
             {otherShopsInRadius.length} partner shop(s) within {radiusKm} km
+          </span>
+          <span
+            className="badge sm purple"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 4, fontWeight: 600, fontSize: 11 }}
+            title="Mesh network links interconnecting your partner stores"
+          >
+            🕸️ Mesh Network Active
           </span>
           <span className="faint" style={{ fontSize: 12 }}>
             from {currentShop?.name || currentCoords.name}
@@ -407,29 +452,44 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
                   }}
                 >
                   <div className="row spread" style={{ alignItems: 'flex-start' }}>
-                    <div style={{ fontWeight: 600, fontSize: 12.5, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <div style={{ fontWeight: 600, fontSize: 13, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {shop.iconEmoji} {shop.name}
                     </div>
                     <span className="badge sm green" style={{ fontSize: 10.5, flexShrink: 0, padding: '1px 5px' }}>
                       {shop.distanceKm < 0.1 ? '< 0.1 km' : `${shop.distanceKm} km`}
                     </span>
                   </div>
+
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
+                    <span className="badge sm" style={{ fontSize: 10, background: 'rgba(99,102,241,0.1)', color: '#6366f1', padding: '1px 5px' }}>
+                      {shop.shopType ? shop.shopType.toUpperCase() : 'RETAIL'}
+                    </span>
+                    {shop.ownerName && (
+                      <span className="badge sm" style={{ fontSize: 10, background: 'rgba(16,185,129,0.1)', color: '#10b981', padding: '1px 5px' }}>
+                        👤 {shop.ownerName}
+                      </span>
+                    )}
+                  </div>
+
                   <div
                     className="faint"
                     style={{
                       fontSize: 11,
-                      marginTop: 2,
+                      marginTop: 4,
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
                     }}
                     title={shop.address}
                   >
-                    {shop.address || 'Address registered'}
+                    📍 {shop.address || 'Address registered'}
                   </div>
-                  {shop.phone && (
-                    <div className="muted" style={{ fontSize: 10.5, marginTop: 2 }}>
-                      📞 {shop.phone}
+
+                  {(shop.ownerPhone || shop.phone) && (
+                    <div className="muted" style={{ fontSize: 11, marginTop: 3 }}>
+                      <a href={`tel:${shop.ownerPhone || shop.phone}`} style={{ color: 'inherit', textDecoration: 'none' }}>
+                        📞 {shop.ownerPhone || shop.phone}
+                      </a>
                     </div>
                   )}
                 </div>

@@ -14,7 +14,6 @@ import Dashboard from './pages/Dashboard'
 import Inventory from './pages/Inventory'
 import ScanAdd from './pages/ScanAdd'
 import Billing from './pages/Billing'
-import Assist from './pages/Assist'
 import NearExpiry from './pages/NearExpiry'
 import EmergencyRequirement from './pages/EmergencyRequirement'
 import Returns from './pages/Returns'
@@ -24,6 +23,7 @@ import Reports from './pages/Reports'
 import Users from './pages/Users'
 import Admin from './pages/Admin'
 import Settings from './pages/Settings'
+import SalesAnalysis from './pages/SalesAnalysis'
 
 const ALL = [ROLES.ADMIN, ROLES.MANAGER, ROLES.USER]
 
@@ -43,7 +43,6 @@ const ROUTES = [
   // Manager Directory Routes
   { path: '/manager', title: 'Store Dashboard', allow: [ROLES.MANAGER], El: Dashboard, end: true },
   { path: '/manager/dashboard', title: 'Dashboard', allow: [ROLES.MANAGER], El: Dashboard },
-  { path: '/manager/assist', title: 'AI Assist', allow: [ROLES.MANAGER], El: Assist },
   { path: '/manager/inventory', title: 'Inventory', allow: [ROLES.MANAGER], El: Inventory },
   { path: '/manager/billing', title: 'Billing & POS', allow: [ROLES.MANAGER], El: Billing },
   { path: '/manager/scan', title: 'Scan & Add', allow: [ROLES.MANAGER], El: ScanAdd },
@@ -51,6 +50,7 @@ const ROUTES = [
   { path: '/manager/emergency', title: 'Emergency Requirement', allow: [ROLES.MANAGER], El: EmergencyRequirement },
   { path: '/manager/returns', title: 'Returns', allow: [ROLES.MANAGER], El: Returns },
   { path: '/manager/approvals', title: 'Approvals', allow: [ROLES.MANAGER], El: Approvals },
+  { path: '/manager/analysis', title: 'Sales Analysis', allow: [ROLES.MANAGER], El: SalesAnalysis },
   { path: '/manager/analytics', title: 'Analytics', allow: [ROLES.MANAGER], El: Analytics },
   { path: '/manager/reports', title: 'Reports', allow: [ROLES.MANAGER], El: Reports },
   { path: '/manager/staff', title: 'Staff Management', allow: [ROLES.MANAGER], El: Users },
@@ -65,6 +65,7 @@ const ROUTES = [
   { path: '/cashier/expiring', title: 'Near Expiry', allow: [ROLES.USER], El: NearExpiry },
   { path: '/cashier/emergency', title: 'Emergency Stock', allow: [ROLES.USER], El: EmergencyRequirement },
   { path: '/cashier/returns', title: 'Returns', allow: [ROLES.USER], El: Returns },
+  { path: '/cashier/analysis', title: 'Sales Analysis', allow: [ROLES.USER], El: SalesAnalysis },
   { path: '/cashier/settings', title: 'Settings', allow: [ROLES.USER], El: Settings },
 ]
 

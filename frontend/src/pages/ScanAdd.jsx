@@ -15,6 +15,7 @@ const empty = {
   batchNo: '',
   qty: '',
   expiryDate: '',
+  mrp: '',
   buyingPrice: '',
   sellingPrice: '',
   emergencyPrice: '',
@@ -31,6 +32,7 @@ export default function ScanAdd() {
   const [scanOpen, setScanOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [lastSaved, setLastSaved] = useState(null)
+  const [searchQuery, setSearchQuery] = useState('')
   const inputRef = useRef(null)
   const batchRef = useRef(null)
 
@@ -38,31 +40,80 @@ export default function ScanAdd() {
 
   const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }))
 
+  // Keep SKU, Barcode, and SearchQuery 100% identical and synchronized
+  const handleCodeChange = (val) => {
+    setSearchQuery(val)
+    setForm((f) => ({
+      ...f,
+      sku: val,
+      barcode: val,
+    }))
+  }
+
+  const handleCodeBlur = () => {
+    const v = (searchQuery || form.sku || '').trim()
+    if (v && (!knownProduct || (knownProduct.sku !== v && knownProduct.barcode !== v))) {
+      lookup(v)
+    }
+  }
+
   const lookup = async (raw) => {
-    const parsed = parseScan(raw)
+    const rawStr = String(raw || '').trim()
+    if (!rawStr) return
+    const parsed = parseScan(rawStr)
+    const codeToFill = parsed?.barcode || parsed?.sku || rawStr
+
+    // Synchronize both SKU and Barcode immediately
+    setSearchQuery(codeToFill)
+    if (inputRef.current) {
+      inputRef.current.value = codeToFill
+    }
+
     if (parsed.type === 'label') {
-      setForm((f) => ({ ...f, sku: parsed.sku, batchNo: parsed.batchNo || f.batchNo, expiryDate: parsed.expiryDate || f.expiryDate }))
-      await resolveProduct({ sku: parsed.sku })
+      setForm((f) => ({
+        ...f,
+        sku: parsed.sku,
+        barcode: parsed.sku,
+        batchNo: parsed.batchNo || f.batchNo,
+        expiryDate: parsed.expiryDate || f.expiryDate,
+      }))
+      await resolveProduct({ sku: parsed.sku, barcode: parsed.sku })
       return
     }
     if (parsed.type === 'gs1') {
-      setForm((f) => ({ ...f, barcode: parsed.barcode || f.barcode, batchNo: parsed.batchNo || f.batchNo, expiryDate: parsed.expiryDate || f.expiryDate }))
+      setForm((f) => ({
+        ...f,
+        sku: parsed.barcode || f.sku || rawStr,
+        barcode: parsed.barcode || f.barcode || rawStr,
+        batchNo: parsed.batchNo || f.batchNo,
+        expiryDate: parsed.expiryDate || f.expiryDate,
+      }))
       await resolveProduct({ barcode: parsed.barcode, sku: parsed.barcode })
       if (parsed.batchNo || parsed.expiryDate) toast.ok('2D code read: batch & expiry filled automatically.')
       return
     }
-    await resolveProduct({ barcode: parsed.barcode, sku: parsed.barcode })
+    setForm((f) => ({
+      ...f,
+      sku: codeToFill,
+      barcode: codeToFill,
+    }))
+    await resolveProduct({ barcode: codeToFill, sku: codeToFill })
   }
 
   const resolveProduct = async ({ sku, barcode }) => {
-    const p = await findProduct({ sku, barcode })
+    const code = (sku || barcode || '').trim()
+    if (!code) return
+    const p = await findProduct({ sku: code, barcode: code })
     if (p) {
       setKnownProduct(p)
+      const pCode = p.barcode || p.sku || code
+      setSearchQuery(pCode)
       setForm((f) => ({
         ...f,
-        sku: p.sku,
-        barcode: p.barcode || barcode || '',
-        productName: p.productName,
+        sku: pCode,
+        barcode: pCode,
+        productName: p.productName || '',
+        mrp: p.mrp ? String(p.mrp) : (p.sellingPrice ? String(p.sellingPrice) : f.mrp),
         buyingPrice: p.buyingPrice ? String(p.buyingPrice) : f.buyingPrice,
         sellingPrice: p.sellingPrice ? String(p.sellingPrice) : f.sellingPrice,
         emergencyPrice: p.emergencyPrice ? String(p.emergencyPrice) : f.emergencyPrice,
@@ -71,8 +122,13 @@ export default function ScanAdd() {
       setTimeout(() => batchRef.current?.focus(), 50)
     } else {
       setKnownProduct(null)
-      setForm((f) => ({ ...f, sku: sku || f.sku, barcode: barcode || f.barcode }))
-      toast.info('New product — fill in its name & pricing to register it.')
+      setSearchQuery(code)
+      setForm((f) => ({
+        ...f,
+        sku: code,
+        barcode: code,
+      }))
+      toast.info('New product — enter name & pricing to register.')
     }
   }
 
@@ -83,16 +139,17 @@ export default function ScanAdd() {
       toast.ok('Read expiry — please confirm.')
       return
     }
-    if (d.raw) lookup(d.raw)
-    else if (d.type === 'label') lookup(`SF|${d.sku}|${d.batchNo}|${d.expiryDate}|${d.locationId}`)
-    else lookup(d.barcode)
+    const scannedVal = d.raw || d.barcode || (d.type === 'label' ? `SF|${d.sku}|${d.batchNo}|${d.expiryDate}|${d.locationId}` : '')
+    if (scannedVal) {
+      lookup(scannedVal)
+    }
     setScanOpen(false)
   }
 
   const onLookupKey = (e) => {
     if (e.key === 'Enter') {
       e.preventDefault()
-      const v = e.target.value.trim()
+      const v = (searchQuery || form.sku || e.target.value || '').trim()
       if (v) lookup(v)
     }
   }
@@ -101,6 +158,7 @@ export default function ScanAdd() {
   const bp = parseFloat(form.buyingPrice) || 0
   const sp = parseFloat(form.sellingPrice) || 0
   const ep = parseFloat(form.emergencyPrice) || 0
+  const mrp = parseFloat(form.mrp) || sp
 
   const normalProfit = sp > bp ? sp - bp : 0
   const emergencyProfit = ep > bp ? ep - bp : 0
@@ -115,48 +173,70 @@ export default function ScanAdd() {
 
   const save = async () => {
     if (isAdmin) return toast.err('Admins cannot add products. Products must be added by the shop user.')
-    if (!activeLocation) return toast.err('Select a warehouse first.')
-    if (!form.sku) return toast.err('A SKU is required.')
-    if (!form.productName && !knownProduct) return toast.err('Enter the product name.')
-    if (!(Number(form.qty) > 0)) return toast.err('Quantity must be more than zero.')
+    if (!activeLocation) return toast.err('Select a warehouse/store first.')
+    const code = (form.sku || searchQuery || form.barcode || '').trim()
+    if (!code) return toast.err('Please enter or scan a SKU / Barcode in Step 1.')
+    if (!form.productName && !knownProduct) return toast.err('Please enter the Product Name in Step 1.')
+    if (!(Number(form.qty) > 0)) return toast.err('Quantity must be greater than zero in Step 2.')
 
     // Pricing validation
-    if (!bp || bp <= 0) return toast.err('Please enter a valid Buying Price (Cost Price).')
+    if (!bp || bp <= 0) return toast.err('Please enter a valid Buying Price (Cost Price) in Step 3.')
     if (!sp || sp <= bp) return toast.err('Selling Price must be greater than Buying Price.')
-    if (!ep || ep < bp) return toast.err('Emergency Price cannot be lower than Buying Price.')
-    if (emergencyProfit >= maxEmergencyProfitAllowed) {
-      return toast.err(`Emergency profit (₹${emergencyProfit.toFixed(2)}) must be less than 60% of selling profit (₹${maxEmergencyProfitAllowed.toFixed(2)}).`)
+
+    let finalEp = ep
+    if (!finalEp && sp > bp) {
+      finalEp = Number((bp + (normalProfit * 0.45)).toFixed(2))
+    }
+    if (finalEp < bp) return toast.err('Emergency Price cannot be lower than Buying Price.')
+    const currEmergencyProfit = finalEp - bp
+    if (currEmergencyProfit >= maxEmergencyProfitAllowed && maxEmergencyProfitAllowed > 0) {
+      return toast.err(`Emergency profit (₹${currEmergencyProfit.toFixed(2)}) must be less than 60% of selling profit (₹${maxEmergencyProfitAllowed.toFixed(2)}). Maximum allowed is ₹${(maxEmergencyPriceAllowed - 0.01).toFixed(2)}.`)
     }
 
     const batchNo = form.batchNo.trim() || (form.expiryDate ? `EXP-${form.expiryDate.slice(0, 7)}` : 'DEFAULT')
+    const mrpNum = parseFloat(form.mrp) || sp
 
     setBusy(true)
     try {
       await saveProduct({
-        sku: form.sku,
-        productName: form.productName,
-        barcode: form.barcode,
+        sku: code,
+        productName: form.productName || knownProduct?.productName,
+        barcode: code,
+        mrp: mrpNum,
         buyingPrice: bp,
         sellingPrice: sp,
-        emergencyPrice: ep,
+        emergencyPrice: finalEp,
       })
 
       await addStock({
-        sku: form.sku,
+        sku: code,
         locationId: activeLocation.id,
         batchNo,
         qty: Number(form.qty),
         expiryDate: form.expiryDate,
         by: profile?.email,
+        mrp: mrpNum,
         buyingPrice: bp,
         sellingPrice: sp,
-        emergencyPrice: ep,
+        emergencyPrice: finalEp,
       })
 
-      setLastSaved({ ...form, batchNo, location: activeLocation, buyingPrice: bp, sellingPrice: sp, emergencyPrice: ep })
-      toast.ok(`Added ${form.qty} units to ${activeLocation.name} with emergency pricing.`)
+      setLastSaved({
+        ...form,
+        sku: code,
+        barcode: code,
+        batchNo,
+        location: activeLocation,
+        mrp: mrpNum,
+        buyingPrice: bp,
+        sellingPrice: sp,
+        emergencyPrice: finalEp,
+      })
+      toast.ok(`Added ${form.qty} units to ${activeLocation.name}.`)
       setForm(empty)
       setKnownProduct(null)
+      setSearchQuery('')
+      if (inputRef.current) inputRef.current.value = ''
       inputRef.current?.focus()
       refresh()
     } catch (err) {
@@ -204,20 +284,50 @@ export default function ScanAdd() {
           <h3><span className="step-n">1</span> Find Product</h3>
           <div className="field" style={{ marginTop: 12 }}>
             <label>Type SKU / Barcode + Enter</label>
-            <input ref={inputRef} className="input mono" placeholder="e.g. SKU-001 or 890xxxxxxxx" onKeyDown={onLookupKey} />
-            <span className="faint" style={{ fontSize: 11.5 }}>Name &amp; details auto-fill when known.</span>
+            <input
+              ref={inputRef}
+              className="input mono"
+              placeholder="e.g. SKU-001 or 890xxxxxxxx"
+              value={searchQuery}
+              onChange={(e) => handleCodeChange(e.target.value)}
+              onBlur={handleCodeBlur}
+              onKeyDown={onLookupKey}
+            />
+            <span className="faint" style={{ fontSize: 11.5 }}>Name &amp; details auto-fill when known. Press Enter to search.</span>
           </div>
+
           {knownProduct ? (
-            <div className="badge good" style={{ marginBottom: 10 }}><span className="dot" /> {knownProduct.productName}</div>
+            <div className="badge good" style={{ marginBottom: 10 }}>
+              <span className="dot" /> Found in Catalog: {knownProduct.productName}
+            </div>
           ) : form.sku ? (
-            <div className="badge warn" style={{ marginBottom: 10 }}><span className="dot" /> New product — needs a name</div>
+            <div className="badge warn" style={{ marginBottom: 10 }}>
+              <span className="dot" /> New Product — fill name &amp; pricing below
+            </div>
           ) : null}
-          <div className="field"><label>SKU *</label><input className="input mono" value={form.sku} onChange={set('sku')} /></div>
+
+          <div className="field">
+            <label>SKU / Barcode *</label>
+            <input
+              className="input mono"
+              value={form.sku}
+              onChange={(e) => handleCodeChange(e.target.value)}
+              onBlur={handleCodeBlur}
+              placeholder="e.g. SKU-001 or 890xxxxxxxx"
+            />
+            <span className="faint" style={{ fontSize: 11 }}>SKU and Barcode are synchronized to the same value.</span>
+          </div>
+
           <div className="field">
             <label>Product Name *</label>
-            <input className="input" value={form.productName} onChange={set('productName')} disabled={!!knownProduct} placeholder={knownProduct ? knownProduct.productName : 'Display name'} />
+            <input
+              className="input"
+              value={form.productName}
+              onChange={set('productName')}
+              disabled={!!knownProduct}
+              placeholder={knownProduct ? knownProduct.productName : 'Display name'}
+            />
           </div>
-          <div className="field"><label>Barcode (optional)</label><input className="input mono" value={form.barcode} onChange={set('barcode')} /></div>
         </div>
 
         {/* Step 2: Batch & Expiry */}
@@ -250,7 +360,28 @@ export default function ScanAdd() {
 
           <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
             <div className="field">
-              <label>1. Buying Price (Cost Price) *</label>
+              <div className="row spread">
+                <label>1. MRP (Maximum Retail Price) *</label>
+                {mrp > sp && sp > 0 && (
+                  <span className="badge green sm">Discount to Customer: ₹{(mrp - sp).toFixed(2)}</span>
+                )}
+              </div>
+              <div className="row" style={{ alignItems: 'center', gap: 6 }}>
+                <span className="mono" style={{ fontSize: 14, fontWeight: 700, color: 'var(--muted)' }}>₹</span>
+                <input
+                  className="input mono"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="e.g. 200 (Printed MRP)"
+                  value={form.mrp}
+                  onChange={set('mrp')}
+                />
+              </div>
+            </div>
+
+            <div className="field">
+              <label>2. Buying Price (Cost Price) *</label>
               <div className="row" style={{ alignItems: 'center', gap: 6 }}>
                 <span className="mono" style={{ fontSize: 14, fontWeight: 700, color: 'var(--muted)' }}>₹</span>
                 <input
@@ -267,7 +398,7 @@ export default function ScanAdd() {
 
             <div className="field">
               <div className="row spread">
-                <label>2. Selling Price (Normal Retail) *</label>
+                <label>3. Selling Price (Normal Retail) *</label>
                 {sp > bp && bp > 0 && (
                   <span className="badge green sm">Profit: ₹{normalProfit.toFixed(2)}</span>
                 )}
@@ -288,7 +419,7 @@ export default function ScanAdd() {
 
             <div className="field">
               <div className="row spread" style={{ alignItems: 'center' }}>
-                <label>3. Emergency Price (Neighbor Shops) *</label>
+                <label>4. Emergency Price (Neighbor Shops) *</label>
                 {maxEmergencyProfitAllowed > 0 && (
                   <button
                     type="button"
@@ -371,7 +502,7 @@ export default function ScanAdd() {
             <button
               className="btn green"
               onClick={save}
-              disabled={busy || isAdmin || isEmergencyProfitExceeded || !form.sku || !form.qty || !hasAllPrices}
+              disabled={busy || isAdmin || isEmergencyProfitExceeded}
               style={{ width: '100%', justifyContent: 'center', marginTop: 'auto', padding: '10px 0' }}
             >
               {busy ? 'Saving…' : isAdmin ? 'Admin Restricted' : 'Save to Inventory'}

@@ -3,7 +3,7 @@ import { useWorkspace } from '../lib/WorkspaceContext'
 import { useAlerts } from '../lib/AlertsContext'
 import { useAuth } from '../lib/AuthContext'
 import { useToast } from '../lib/ToastContext'
-import { removeBatch } from '../lib/api'
+import { removeBatch, clearAllInventory } from '../lib/api'
 import StatusBadge from '../components/StatusBadge'
 import BatchBoxes3D from '../components/BatchBoxes3D'
 import { batchStatus, formatExpiry } from '../lib/fefo'
@@ -11,12 +11,15 @@ import { batchStatus, formatExpiry } from '../lib/fefo'
 export default function Inventory() {
   const { activeLocation } = useWorkspace()
   const { batches, productsBySku, loading, refresh } = useAlerts()
-  const { canManage, isAdmin, profile } = useAuth()
-  const canDelete = canManage && !isAdmin
+  const { canManage, isAdmin, profile, role } = useAuth()
+  // Both Managers and Shop Users can remove batches / clear products; Admins cannot modify store stock
+  const canDelete = !isAdmin
   const toast = useToast()
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('all')
   const [confirm, setConfirm] = useState(null)
+  const [confirmClearAll, setConfirmClearAll] = useState(false)
+  const [clearing, setClearing] = useState(false)
 
   const doRemove = async () => {
     if (isAdmin) return toast.err('Admins cannot remove products or stock.')
@@ -28,6 +31,21 @@ export default function Inventory() {
       refresh()
     } catch (err) {
       toast.err(err.message)
+    }
+  }
+
+  const doClearAll = async () => {
+    if (isAdmin) return toast.err('Admins cannot clear inventory.')
+    setClearing(true)
+    try {
+      await clearAllInventory({ locationId: activeLocation?.id, by: profile?.email })
+      toast.ok('All products and inventory batches have been removed successfully.')
+      setConfirmClearAll(false)
+      refresh()
+    } catch (err) {
+      toast.err(err.message || 'Failed to clear inventory')
+    } finally {
+      setClearing(false)
     }
   }
 
@@ -59,11 +77,20 @@ export default function Inventory() {
 
   return (
     <div className="page">
-      <div className="page-head">
+      <div className="page-head row spread" style={{ alignItems: 'center' }}>
         <div>
           <h1>Inventory</h1>
           <div className="sub">{activeLocation ? activeLocation.name : 'All locations'} · live stock & pricing (FEFO order)</div>
         </div>
+        {canDelete && rows.length > 0 && (
+          <button
+            className="btn danger sm"
+            onClick={() => setConfirmClearAll(true)}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }}
+          >
+            Clear All Products
+          </button>
+        )}
       </div>
 
       {/* Inventory Valuation & Pricing Summary Cards */}
@@ -196,6 +223,23 @@ export default function Inventory() {
             <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
               <button className="btn ghost sm" onClick={() => setConfirm(null)}>Cancel</button>
               <button className="btn danger sm" onClick={doRemove}>Delete batch</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmClearAll && (
+        <div className="modal-backdrop" onClick={() => !clearing && setConfirmClearAll(false)}>
+          <div className="modal" style={{ maxWidth: 440 }} onClick={(e) => e.stopPropagation()}>
+            <h3 style={{ color: 'var(--red, #ef4444)' }}>Remove all products from inventory?</h3>
+            <p className="muted" style={{ fontSize: 13.5, margin: '10px 0 14px', lineHeight: 1.5 }}>
+              This will permanently delete all product definitions and all inventory stock batches. This action cannot be undone.
+            </p>
+            <div className="row" style={{ gap: 10, justifyContent: 'flex-end' }}>
+              <button className="btn ghost sm" disabled={clearing} onClick={() => setConfirmClearAll(false)}>Cancel</button>
+              <button className="btn danger sm" disabled={clearing} onClick={doClearAll}>
+                {clearing ? 'Clearing…' : 'Yes, Delete Everything'}
+              </button>
             </div>
           </div>
         </div>

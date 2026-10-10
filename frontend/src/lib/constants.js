@@ -17,9 +17,10 @@ export const SHOP_TYPES = [
   { id: 'pharmacy', label: 'Pharmacy / Medical', icon: '💊' },
   { id: 'general_store', label: 'General Store / Kirana', icon: '🏪' },
   { id: 'mart', label: 'Supermarket / Mart', icon: '🛒' },
-  { id: 'grocery', label: 'Grocery & Fresh Produce', icon: '🥦' },
-  { id: 'electronics', label: 'Electronics & Hardware', icon: '⚡' },
-  { id: 'clothing', label: 'Clothing & Apparel', icon: '👕' },
+  { id: 'dairy', label: 'Dairy & Milk Parlour', icon: '🥛' },
+  { id: 'bakery', label: 'Bakery & Confectionery', icon: '🍞' },
+  { id: 'cosmetics', label: 'Cosmetics & Skincare', icon: '💄' },
+  { id: 'ayurveda_supplements', label: 'Ayurvedic & Health Supplements', icon: '🌿' },
   { id: 'other', label: 'Other Retail / Wholesale', icon: '📦' },
 ]
 

@@ -91,9 +91,51 @@ function normaliseTransferItems(items = []) {
 /* ---------------- locations ---------------- */
 
 export async function listLocations() {
-  const snap = await getDocs(query(col('locations'), orderBy('name')))
-  // Only return active shops associated with registered member accounts
-  return snapToRows(snap).filter((l) => (l.ownerEmail || l.mapVerified) && l.active !== false)
+  const [locSnap, usersSnap] = await Promise.all([
+    getDocs(query(col('locations'), orderBy('name'))),
+    getDocs(col('users')).catch(() => ({ docs: [] })),
+  ])
+
+  const userByEmail = {}
+  const userById = {}
+  for (const doc of usersSnap.docs || []) {
+    const data = doc.data()
+    if (doc.id) userById[doc.id] = data
+    if (data.uid) userById[data.uid] = data
+    if (data.email) userByEmail[data.email.toLowerCase()] = data
+  }
+
+  const rows = snapToRows(locSnap).filter((l) => (l.ownerEmail || l.mapVerified) && l.active !== false)
+  return rows.map((l) => {
+    const u =
+      (l.ownerEmail ? userByEmail[l.ownerEmail.toLowerCase()] : null) ||
+      (l.ownerId ? userById[l.ownerId] : null) ||
+      (l.userId ? userById[l.userId] : null) ||
+      (l.createdBy ? userById[l.createdBy] : null)
+    const emailPrefix = l.ownerEmail ? l.ownerEmail.split('@')[0] : ''
+    const cleanEmailName = emailPrefix
+      ? (emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1)).replace(/[0-9._-]+/g, ' ').replace(/\s+/g, ' ').trim()
+      : ''
+    const registeredName =
+      u?.name ||
+      u?.displayName ||
+      (l.ownerName && l.ownerName !== 'Store Owner' ? l.ownerName : '') ||
+      l.contactPerson ||
+      cleanEmailName ||
+      (emailPrefix ? emailPrefix.charAt(0).toUpperCase() + emailPrefix.slice(1) : '') ||
+      'Member Account'
+    const ownerPhone = u?.phone || l.ownerPhone || l.phone || ''
+    const shopType = u?.shopType || l.shopType || (l.type === 'mart' ? 'mart' : l.type) || 'general_store'
+
+    return {
+      ...l,
+      ownerName: registeredName,
+      registeredName,
+      ownerPhone,
+      phone: ownerPhone,
+      shopType,
+    }
+  })
 }
 
 export async function saveLocation(location) {
@@ -106,10 +148,14 @@ export async function saveLocation(location) {
       type: location.type || 'warehouse',
       shopType: location.shopType || '',
       address: location.address || '',
+      gstNumber: location.gstNumber || '',
       coordinates: location.coordinates || null,
       mapVerified: !!location.mapVerified,
       googleMapsUrl: location.googleMapsUrl || '',
       ownerEmail: location.ownerEmail || '',
+      ownerName: location.ownerName || '',
+      ownerPhone: location.ownerPhone || location.phone || '',
+      phone: location.phone || location.ownerPhone || '',
       active: location.active !== false,
       updatedAt: serverTimestamp(),
     },
@@ -301,6 +347,7 @@ export async function createStaffUser({
   shopName,
   shopType,
   address,
+  gstNumber,
   coordinates,
   googleMapsUrl,
   subscriptionDuration,
@@ -326,6 +373,7 @@ export async function createStaffUser({
       type: 'warehouse',
       shopType: shopType || 'general_store',
       address: address || '',
+      gstNumber: (gstNumber || '').trim().toUpperCase(),
       coordinates: coordinates || null,
       mapVerified: true,
       googleMapsUrl: googleMapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address || shopName)}`,
@@ -362,6 +410,7 @@ export async function createStaffUser({
       shopType: shopType || '',
       shopLocationId: createdLocationId || (finalLocationIds[0] || ''),
       verifiedAddress: address || '',
+      gstNumber: (gstNumber || '').trim().toUpperCase(),
       coordinates: coordinates || null,
       googleMapsUrl: googleMapsUrl || '',
       subscriptionDuration: subscriptionDuration || '1_month',
@@ -466,6 +515,7 @@ export async function saveProduct(product) {
       altVendor1: product.altVendor1 || '',
       altVendor2: product.altVendor2 || '',
       reorderLevel: Number(product.reorderLevel) || 0,
+      mrp: Number(product.mrp) || sp,
       buyingPrice: bp,
       sellingPrice: sp,
       emergencyPrice: ep,
@@ -512,7 +562,7 @@ export async function batchesForSkuAtLocations(sku, locationIds = []) {
 
 // Adds stock for a stock group and records the movement. Increments if the
 // group already exists at that location.
-export async function addStock({ sku, locationId, batchNo, qty, expiryDate, by, buyingPrice, sellingPrice, emergencyPrice }) {
+export async function addStock({ sku, locationId, batchNo, qty, expiryDate, by, buyingPrice, sellingPrice, emergencyPrice, mrp }) {
   qty = positiveQty(qty)
   if (!sku || !locationId || !batchNo) throw new Error('sku, location and stock group are required')
 
@@ -523,6 +573,7 @@ export async function addStock({ sku, locationId, batchNo, qty, expiryDate, by, 
   const bPrice = Number(buyingPrice) || 0
   const sPrice = Number(sellingPrice) || 0
   const ePrice = Number(emergencyPrice) || 0
+  const mPrice = Number(mrp) || sPrice
 
   if (bPrice > 0 && sPrice > bPrice && ePrice > 0) {
     const normalProfit = sPrice - bPrice
@@ -540,6 +591,7 @@ export async function addStock({ sku, locationId, batchNo, qty, expiryDate, by, 
       if (bPrice) updateData.buyingPrice = bPrice
       if (sPrice) updateData.sellingPrice = sPrice
       if (ePrice) updateData.emergencyPrice = ePrice
+      if (mPrice) updateData.mrp = mPrice
       tx.update(ref, updateData)
     } else {
       tx.set(ref, {
@@ -548,6 +600,7 @@ export async function addStock({ sku, locationId, batchNo, qty, expiryDate, by, 
         batchNo,
         qty,
         expiryDate,
+        mrp: mPrice,
         buyingPrice: bPrice,
         sellingPrice: sPrice,
         emergencyPrice: ePrice,
@@ -611,6 +664,26 @@ export async function removeBatch({ batchId, by, reason }) {
   })
   // Live Stock row goes to 0 / removed.
   pushStock({ sku: removed.sku, batchNo: removed.batchNo, locationId: removed.locationId, qty: 0, expiryDate: removed.expiryDate, by })
+  persistEmulatorData().catch(() => {})
+}
+
+// Clears all products and batch inventory (supports optional location filter or entire store).
+export async function clearAllInventory({ locationId, by } = {}) {
+  // 1. Delete all batch_inventory docs (filtered by location if given, or all)
+  let batchesSnap
+  if (locationId) {
+    batchesSnap = await getDocs(query(col('batch_inventory'), where('locationId', '==', locationId)))
+  } else {
+    batchesSnap = await getDocs(col('batch_inventory'))
+  }
+  const deleteBatchPromises = batchesSnap.docs.map((d) => deleteDoc(d.ref))
+  await Promise.all(deleteBatchPromises)
+
+  // 2. Delete all products
+  const productsSnap = await getDocs(col('products'))
+  const deleteProductPromises = productsSnap.docs.map((d) => deleteDoc(d.ref))
+  await Promise.all(deleteProductPromises)
+
   persistEmulatorData().catch(() => {})
 }
 
@@ -1358,11 +1431,13 @@ export async function createBill({
   shopName,
   shopAddress,
   shopPhone,
+  gstNumber = '',
   items,
   customerName,
   customerPhone,
   paymentMethod,
   discount = 0,
+  totalMrp = 0,
   notes = '',
   by,
 }) {
@@ -1372,9 +1447,24 @@ export async function createBill({
 
   // Calculate totals
   const totalQty = items.reduce((s, it) => s + (Number(it.qty) || 0), 0)
-  const subtotal = items.reduce((s, it) => s + (Number(it.subtotal) || 0), 0)
-  const finalDiscount = Number(discount) || 0
-  const grandTotal = Math.max(0, Math.round((subtotal - finalDiscount) * 100) / 100)
+  const calculatedTotalMrp =
+    Number(totalMrp) ||
+    items.reduce((s, it) => s + (Number(it.mrp || it.unitPrice || 0) * (Number(it.qty) || 0)), 0)
+  const subtotal = items.reduce((s, it) => s + (Number(it.subtotal) || (Number(it.unitPrice) || 0) * (Number(it.qty) || 0)), 0)
+
+  // Auto-calculated discount from difference between MRP and selling price
+  const autoDiscount = items.reduce((s, it) => {
+    const itemMrp = Number(it.mrp || it.unitPrice || 0)
+    const itemSp = Number(it.unitPrice || 0)
+    return s + (Math.max(0, itemMrp - itemSp) * (Number(it.qty) || 0))
+  }, 0)
+
+  const finalDiscount =
+    discount !== undefined && discount !== null && Number(discount) > 0
+      ? Number(discount)
+      : Math.round(autoDiscount * 100) / 100
+
+  const grandTotal = Math.max(0, Math.round(subtotal * 100) / 100)
 
   // Generate unique invoice number: INV-YYYYMMDD-XXXX
   const now = new Date()
@@ -1394,7 +1484,11 @@ export async function createBill({
       if (!snap.exists()) {
         throw new Error(`Batch "${it.batchNo || it.sku}" was not found in inventory.`)
       }
-      const curQty = snap.data().qty || 0
+      const bData = snap.data()
+      if (bData.locationId && bData.locationId !== locationId) {
+        throw new Error(`Batch "${it.batchNo || it.sku}" does not belong to this shop location.`)
+      }
+      const curQty = bData.qty || 0
       if (curQty < it.qty) {
         throw new Error(`Insufficient stock for ${it.productName || it.sku}. Only ${curQty} units left in stock.`)
       }
@@ -1412,6 +1506,7 @@ export async function createBill({
         reason: LEDGER_REASONS.SOLD,
         sku: it.sku,
         locationId,
+        shopId: locationId,
         batchNo: it.batchNo || 'DEFAULT',
         delta: -it.qty,
         by: by || 'pos-cashier',
@@ -1425,9 +1520,11 @@ export async function createBill({
       id: billRef.id,
       invoiceNo,
       locationId,
+      shopId: locationId,
       shopName: shopName || '',
       shopAddress: shopAddress || '',
       shopPhone: shopPhone || '',
+      gstNumber: gstNumber || '',
       customerName: customerName ? customerName.trim() : 'Walk-in Customer',
       customerPhone: customerPhone ? customerPhone.trim() : '',
       paymentMethod: paymentMethod || 'cash',
@@ -1438,11 +1535,13 @@ export async function createBill({
         batchNo: it.batchNo || '',
         expiryDate: it.expiryDate || '',
         qty: Number(it.qty),
+        mrp: Number(it.mrp || it.unitPrice || 0),
         unitPrice: Number(it.unitPrice) || 0,
         buyingPrice: Number(it.buyingPrice) || 0,
         subtotal: Number(it.subtotal) || 0,
       })),
       totalQty,
+      totalMrp: Math.round(calculatedTotalMrp * 100) / 100,
       subtotal,
       discount: finalDiscount,
       grandTotal,
@@ -1462,6 +1561,7 @@ export async function createBill({
     shopName,
     shopAddress,
     shopPhone,
+    gstNumber: gstNumber || '',
     totalQty,
     subtotal,
     discount: finalDiscount,
@@ -1491,4 +1591,33 @@ export async function listBills(locationId, { limitCount = 100 } = {}) {
   })
   return rows.slice(0, limitCount)
 }
+
+export async function logExpiryAlert({
+  locationId,
+  channel,
+  phone,
+  recipientName,
+  itemCount,
+  totalUnits,
+  messagePreview,
+  by,
+}) {
+  try {
+    await addDoc(col('notifications'), {
+      type: 'expiry_alert',
+      channel,
+      locationId: locationId || 'unknown',
+      phone: phone || '',
+      recipientName: recipientName || 'Account Holder',
+      itemCount: itemCount || 0,
+      totalUnits: totalUnits || 0,
+      messagePreview: messagePreview ? messagePreview.slice(0, 300) : '',
+      dispatchedBy: by || 'system',
+      createdAt: serverTimestamp(),
+    })
+  } catch (err) {
+    console.warn('Notification log skipped:', err)
+  }
+}
+
 

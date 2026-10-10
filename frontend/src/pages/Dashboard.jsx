@@ -4,6 +4,7 @@ import { useWorkspace } from '../lib/WorkspaceContext'
 import { useAlerts } from '../lib/AlertsContext'
 import { stockByLocation } from '../lib/api'
 import NearbyShopsMap from '../components/NearbyShopsMap'
+import AssociatedShopsList from '../components/AssociatedShopsList'
 
 export default function Dashboard() {
   const { profile, locations, myLocationIds } = useAuth()
@@ -35,31 +36,18 @@ export default function Dashboard() {
         <Stat label="Low stock" value={counts.lowStock} />
       </div>
 
-      <div className="grid cols-2">
-        <div className="card">
-          <div className="row spread" style={{ marginBottom: 4 }}>
-            <h3 style={{ margin: 0 }}>Associated Shops in Your Area</h3>
-            <span className="badge sm purple">10 km Network</span>
-          </div>
-          <div className="sub" style={{ marginBottom: 12 }}>
-            Connected partner shops within 10 km radius of your location.
-          </div>
-          <NearbyShopsMap locations={locations} currentShop={activeLocation} currentProfile={profile} />
+      <div className="card">
+        <div className="row spread" style={{ marginBottom: 4 }}>
+          <h3 style={{ margin: 0 }}>Associated Shops in Your Area</h3>
+          <span className="badge sm purple">10 km Network Mesh</span>
         </div>
-
-        <div className="card">
-          <div className="row spread"><h3>Needs attention</h3><span className="faint" style={{ fontSize: 12 }}>{alerts.length} item(s)</span></div>
-          <div className="bell-list" style={{ marginTop: 10, maxHeight: 360, overflowY: 'auto' }}>
-            {alerts.length === 0 && <div className="empty">Nothing needs attention.</div>}
-            {alerts.slice(0, 40).map((a, i) => (
-              <div key={i} className={`bell-item sev-${a.severity}`}>
-                <span className="sev-dot" />
-                <span className="bell-msg">{a.message}</span>
-              </div>
-            ))}
-          </div>
+        <div className="sub" style={{ marginBottom: 12 }}>
+          Connected partner shops within 10 km radius of your location linked via an active network mesh.
         </div>
+        <NearbyShopsMap locations={locations} currentShop={activeLocation} currentProfile={profile} />
       </div>
+
+      <AssociatedShopsList locations={locations} currentShop={activeLocation} currentProfile={profile} />
     </div>
   )
 }

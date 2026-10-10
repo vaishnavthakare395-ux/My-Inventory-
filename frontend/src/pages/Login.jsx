@@ -35,8 +35,12 @@ export default function Login() {
     try {
       await loginWithGoogle()
     } catch (err) {
-      console.error('Google Sign-in error:', err)
-      setError(err.message || 'Failed to sign in with Google.')
+      console.warn('Google Sign-in notice:', err)
+      if (err.code === 'auth/popup-closed-by-user' || err.message?.includes('popup-closed-by-user')) {
+        setError('Sign-in popup was closed. Please use the quick-fill buttons or enter your email and password below.')
+      } else {
+        setError(err.message || 'Failed to sign in with Google.')
+      }
       setBusy(false)
     }
   }
@@ -253,7 +257,7 @@ export default function Login() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '16px 0' }}>
             <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
             <span className="faint" style={{ fontSize: 11, textTransform: 'uppercase' }}>
-              {isRegister ? 'or fill details' : 'or enter password'}
+              or
             </span>
             <div style={{ flex: 1, height: 1, background: 'var(--border)' }} />
           </div>

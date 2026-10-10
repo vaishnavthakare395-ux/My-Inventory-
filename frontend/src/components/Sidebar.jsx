@@ -4,7 +4,7 @@ import { ROLES } from '../lib/constants'
 import {
   IconDashboard, IconBox, IconScan, IconClock, IconEmergency,
   IconReturn, IconCheck, IconChart, IconUsers, IconShield, IconSettings,
-  IconReceipt, IconSparkles,
+  IconReceipt,
 } from './icons'
 
 export default function Sidebar({ role, open, collapsed, onClose }) {
@@ -40,6 +40,7 @@ export default function Sidebar({ role, open, collapsed, onClose }) {
             { to: '/cashier/expiring', label: 'Near Expiry', Icon: IconClock },
             { to: '/cashier/emergency', label: 'Emergency Stock', Icon: IconEmergency },
             { to: '/cashier/returns', label: 'Returns', Icon: IconReturn },
+            { to: '/cashier/analysis', label: 'Sales Analysis', Icon: IconChart },
           ],
         },
         {
@@ -57,22 +58,13 @@ export default function Sidebar({ role, open, collapsed, onClose }) {
         title: 'Operations',
         items: [
           { to: '/manager/dashboard', label: 'Dashboard', Icon: IconDashboard },
-          { to: '/manager/assist', label: 'AI Assist', Icon: IconSparkles },
           { to: '/manager/inventory', label: 'Inventory', Icon: IconBox },
           { to: '/manager/billing', label: 'Billing & POS', Icon: IconReceipt },
           { to: '/manager/scan', label: 'Scan & Add', Icon: IconScan },
           { to: '/manager/expiring', label: 'Near Expiry', Icon: IconClock },
           { to: '/manager/emergency', label: 'Emergency Requirement', Icon: IconEmergency },
           { to: '/manager/returns', label: 'Returns', Icon: IconReturn },
-        ],
-      },
-      {
-        title: 'Management',
-        items: [
-          { to: '/manager/staff', label: 'Staff Management', Icon: IconUsers },
-          { to: '/manager/approvals', label: 'Approvals', Icon: IconCheck },
-          { to: '/manager/analytics', label: 'Analytics', Icon: IconChart },
-          { to: '/manager/reports', label: 'Reports', Icon: IconChart },
+          { to: '/manager/analysis', label: 'Sales Analysis', Icon: IconChart },
         ],
       },
       {

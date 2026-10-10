@@ -686,3 +686,11 @@ table.t tbody tr:hover, table.table tbody tr:hover { background: var(--pista-50)
 /* ---- 3d ---- */
 .net3d { height: 380px; border-radius: 12px; overflow: hidden; background: #f4f8f3; border: 1px solid var(--line); }
 .box3d { height: 120px; }
+
+/* ---- map mesh network lines ---- */
+.mesh-network-line {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  pointer-events: none;
+  transition: stroke 0.2s ease, stroke-width 0.2s ease, opacity 0.2s ease;
+}

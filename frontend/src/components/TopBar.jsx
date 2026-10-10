@@ -8,8 +8,8 @@ import Logo from './Logo'
 import { IconMenu, IconSettings, IconLogout } from './icons'
 
 export default function TopBar({ title, onMenu, homePath }) {
-  const { user, profile, role, myLocations, logout } = useAuth()
-  const { activeLocationId, setActive, activeLocation } = useWorkspace()
+  const { user, profile, role, logout } = useAuth()
+  const { activeLocation } = useWorkspace()
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
 
@@ -47,19 +47,6 @@ export default function TopBar({ title, onMenu, homePath }) {
       </div>
 
       <div className="tb-right">
-        {myLocations.length > 0 && (
-          <select
-            className="select tb-loc"
-            value={activeLocationId}
-            onChange={(e) => setActive(e.target.value)}
-            title="Active warehouse"
-          >
-            {myLocations.map((l) => (
-              <option key={l.id} value={l.id}>{l.name}</option>
-            ))}
-          </select>
-        )}
-
         <AlertsBell />
 
         <div className="tb-user-wrap">

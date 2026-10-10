@@ -71,13 +71,16 @@ export default function Billing() {
     return inventory
       .map((b) => {
         const prod = productsBySku[b.sku] || {}
+        const sp = b.sellingPrice || prod.sellingPrice || 0
+        const mrp = b.mrp || prod.mrp || sp
         return {
           ...b,
           productName: prod.productName || b.sku,
           brand: prod.brand || '',
           category: prod.category || '',
           barcode: prod.barcode || '',
-          sellingPrice: b.sellingPrice || prod.sellingPrice || 0,
+          mrp,
+          sellingPrice: sp,
           buyingPrice: b.buyingPrice || prod.buyingPrice || 0,
         }
       })
@@ -104,6 +107,8 @@ export default function Billing() {
       setCart(updated)
     } else {
       const prod = productsBySku[item.sku] || {}
+      const sp = Number(item.sellingPrice || prod.sellingPrice) || 0
+      const mrp = Number(item.mrp || prod.mrp || sp) || sp
       setCart([
         ...cart,
         {
@@ -114,9 +119,10 @@ export default function Billing() {
           expiryDate: item.expiryDate || '',
           maxStock: item.qty,
           qty: 1,
-          unitPrice: Number(item.sellingPrice || prod.sellingPrice) || 0,
+          mrp,
+          unitPrice: sp,
           buyingPrice: Number(item.buyingPrice || prod.buyingPrice) || 0,
-          subtotal: Number(item.sellingPrice || prod.sellingPrice) || 0,
+          subtotal: sp,
         },
       ])
     }
@@ -136,6 +142,7 @@ export default function Billing() {
         const prod = productsBySku[newBatch.sku] || {}
         const safeQty = Math.min(it.qty, newBatch.qty)
         const price = Number(newBatch.sellingPrice || prod.sellingPrice || it.unitPrice) || 0
+        const batchMrp = Number(newBatch.mrp || prod.mrp || it.mrp || price) || price
         return {
           ...it,
           batchId: newBatch.id,
@@ -143,12 +150,28 @@ export default function Billing() {
           expiryDate: newBatch.expiryDate || '',
           maxStock: newBatch.qty,
           qty: safeQty,
+          mrp: batchMrp,
           unitPrice: price,
           subtotal: safeQty * price,
         }
       })
     )
     toast.ok(`Switched to batch ${newBatch.batchNo} (Expiry: ${newBatch.expiryDate})`)
+  }
+
+  // Update Item Pricing (MRP or Selling Price) directly in Cart
+  const updateItemPricing = (batchId, field, value) => {
+    const num = Math.max(0, parseFloat(value) || 0)
+    setCart((prev) =>
+      prev.map((it) => {
+        if (it.batchId !== batchId) return it
+        const updated = { ...it, [field]: num }
+        if (field === 'unitPrice') {
+          updated.subtotal = it.qty * num
+        }
+        return updated
+      })
+    )
   }
 
   // Barcode & QR Code Processing (Extracts Expiry Date and Targets the Batch)
@@ -258,14 +281,31 @@ export default function Billing() {
     setCart([])
     setCustomerName('')
     setCustomerPhone('')
-    setDiscount('')
     setNotes('')
   }
 
-  // Calculate Totals
-  const subtotal = cart.reduce((s, it) => s + (it.subtotal || 0), 0)
-  const discountVal = Math.min(subtotal, Math.max(0, parseFloat(discount) || 0))
-  const grandTotal = Math.max(0, subtotal - discountVal)
+  // Calculate Totals:
+  // Base auto-discount is (MRP − Selling Price) × Quantity.
+  // Cashier can also specify a custom extra discount amount in the field.
+  const totalMrp = cart.reduce((s, it) => s + (Number(it.mrp ?? it.unitPrice ?? 0) * it.qty), 0)
+  const subtotal = cart.reduce((s, it) => s + (Number(it.subtotal) || (Number(it.unitPrice) || 0) * it.qty), 0)
+  const autoDiscount = cart.reduce((s, it) => {
+    const itemMrp = Number(it.mrp ?? it.unitPrice ?? 0)
+    const itemSp = Number(it.unitPrice ?? 0)
+    const diff = Math.max(0, itemMrp - itemSp)
+    return s + (diff * it.qty)
+  }, 0)
+  const numericManualDiscount = discount !== '' && !isNaN(Number(discount)) ? Math.max(0, Number(discount)) : null
+  const discountVal = numericManualDiscount !== null ? numericManualDiscount : Math.round(autoDiscount * 100) / 100
+  // If manual discount is given, grand total reflects subtotal minus extra manual discount
+  const grandTotal = Math.max(
+    0,
+    Math.round(
+      (numericManualDiscount !== null
+        ? Math.max(0, subtotal - (numericManualDiscount - autoDiscount > 0 ? numericManualDiscount - autoDiscount : 0))
+        : subtotal) * 100
+    ) / 100
+  )
   const totalItemsCount = cart.reduce((s, it) => s + it.qty, 0)
 
   // Handle Save Bill (Strictly Deducts from the Selected Batches — NO FEFO Override)
@@ -281,11 +321,13 @@ export default function Billing() {
         shopName: activeLocation.name || 'My Shop',
         shopAddress: activeLocation.address || '',
         shopPhone: activeLocation.phone || activeLocation.ownerPhone || '',
+        gstNumber: activeLocation.gstNumber || activeLocation.gstin || '',
         items: cart,
         customerName,
         customerPhone,
         paymentMethod,
         discount: discountVal,
+        totalMrp,
         notes,
         by: profile?.email || 'cashier',
       })
@@ -506,16 +548,18 @@ export default function Billing() {
                       <th>#</th>
                       <th>Product</th>
                       <th>Batch &amp; Expiry Date (Deducted)</th>
-                      <th>Rate</th>
-                      <th style={{ width: 130 }}>Quantity</th>
-                      <th>Total</th>
+                      <th style={{ width: 95 }}>MRP</th>
+                      <th style={{ width: 105 }}>Selling Price</th>
+                      <th style={{ width: 120 }}>Discount</th>
+                      <th style={{ width: 125 }}>Quantity</th>
+                      <th style={{ textAlign: 'right' }}>Total</th>
                       <th></th>
                     </tr>
                   </thead>
                   <tbody>
                     {cart.length === 0 && (
                       <tr>
-                        <td colSpan={7} className="empty" style={{ padding: '36px 16px' }}>
+                        <td colSpan={9} className="empty" style={{ padding: '36px 16px' }}>
                           Cart is currently empty. Scan a barcode above to add items directly by expiry date.
                         </td>
                       </tr>
@@ -523,6 +567,10 @@ export default function Billing() {
                     {cart.map((it, idx) => {
                       // Look up other batches available for this SKU in case cashier wants to switch batch
                       const availableBatchesForSku = inventory.filter((b) => b.sku === it.sku)
+                      const itemMrp = Number(it.mrp ?? it.unitPrice ?? 0)
+                      const itemSp = Number(it.unitPrice ?? 0)
+                      const unitDiscount = Math.max(0, itemMrp - itemSp)
+                      const lineDiscount = unitDiscount * it.qty
 
                       return (
                         <tr key={it.batchId}>
@@ -560,7 +608,44 @@ export default function Billing() {
                               </div>
                             )}
                           </td>
-                          <td className="mono">₹{it.unitPrice.toFixed(2)}</td>
+                          <td>
+                            <input
+                              className="input mono"
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={it.mrp ?? it.unitPrice}
+                              onChange={(e) => updateItemPricing(it.batchId, 'mrp', e.target.value)}
+                              style={{ width: 80, padding: '3px 6px', fontSize: 12 }}
+                              title="Maximum Retail Price (Printed on product)"
+                            />
+                          </td>
+                          <td>
+                            <input
+                              className="input mono"
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={it.unitPrice}
+                              onChange={(e) => updateItemPricing(it.batchId, 'unitPrice', e.target.value)}
+                              style={{ width: 80, padding: '3px 6px', fontSize: 12 }}
+                              title="Selling price offered to customer"
+                            />
+                          </td>
+                          <td>
+                            {unitDiscount > 0 ? (
+                              <div>
+                                <span className="badge green sm" style={{ fontWeight: 700, fontSize: 11 }}>
+                                  -₹{unitDiscount.toFixed(2)}/unit
+                                </span>
+                                <div className="faint" style={{ fontSize: 10, marginTop: 2 }}>
+                                  Save ₹{lineDiscount.toFixed(2)}
+                                </div>
+                              </div>
+                            ) : (
+                              <span className="faint" style={{ fontSize: 11 }}>₹0.00</span>
+                            )}
+                          </td>
                           <td>
                             <div className="row" style={{ alignItems: 'center', gap: 4 }}>
                               <button
@@ -578,7 +663,7 @@ export default function Billing() {
                                 max={it.maxStock}
                                 value={it.qty}
                                 onChange={(e) => updateQty(it.batchId, e.target.value)}
-                                style={{ width: 50, textAlign: 'center', padding: '4px 2px' }}
+                                style={{ width: 45, textAlign: 'center', padding: '4px 2px' }}
                               />
                               <button
                                 type="button"
@@ -593,7 +678,7 @@ export default function Billing() {
                               Max: {it.maxStock} in batch
                             </div>
                           </td>
-                          <td className="mono" style={{ fontWeight: 700, color: 'var(--text)' }}>
+                          <td className="mono" style={{ fontWeight: 700, color: 'var(--text)', textAlign: 'right' }}>
                             ₹{it.subtotal.toFixed(2)}
                           </td>
                           <td>
@@ -661,15 +746,60 @@ export default function Billing() {
                   </div>
                 </div>
                 <div className="field">
-                  <label>Discount Amount (₹)</label>
-                  <input
-                    className="input mono"
-                    type="number"
-                    min="0"
-                    placeholder="0.00"
-                    value={discount}
-                    onChange={(e) => setDiscount(e.target.value)}
-                  />
+                  <div className="row spread" style={{ alignItems: 'center' }}>
+                    <label>Discount Amount (₹)</label>
+                    <div className="row" style={{ gap: 6, alignItems: 'center' }}>
+                      {discount !== '' && (
+                        <button
+                          type="button"
+                          className="btn ghost sm"
+                          style={{ fontSize: 10, padding: '1px 6px' }}
+                          onClick={() => setDiscount('')}
+                          title="Reset to automatic MRP discount"
+                        >
+                          ↺ Auto MRP
+                        </button>
+                      )}
+                      <span className="badge green sm" style={{ fontSize: 10.5, fontWeight: 700 }}>
+                        {discount !== '' ? 'Custom' : 'Auto: MRP − SP'}
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      className="input mono"
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      placeholder={`₹${autoDiscount.toFixed(2)} (Auto MRP savings)`}
+                      value={discount}
+                      onChange={(e) => setDiscount(e.target.value)}
+                      style={{
+                        paddingRight: 90,
+                        fontWeight: 700,
+                        color: discountVal > 0 ? '#16a34a' : 'inherit',
+                      }}
+                    />
+                    {discountVal > 0 && totalMrp > 0 && (
+                      <span
+                        className="badge green sm"
+                        style={{
+                          position: 'absolute',
+                          right: 8,
+                          top: '50%',
+                          transform: 'translateY(-50%)',
+                          fontSize: 10.5,
+                        }}
+                      >
+                        Save {Math.round((discountVal / totalMrp) * 100)}%
+                      </span>
+                    )}
+                  </div>
+                  <div className="faint" style={{ fontSize: 11, marginTop: 4 }}>
+                    {discount !== ''
+                      ? `Custom discount of ₹${discountVal.toFixed(2)} applied.`
+                      : `Auto-calculated discount: ₹${autoDiscount.toFixed(2)} from MRP across cart items.`}
+                  </div>
                 </div>
               </div>
             </div>
@@ -687,12 +817,12 @@ export default function Billing() {
                   <span className="mono">{totalItemsCount} units</span>
                 </div>
                 <div className="row spread">
-                  <span className="muted">Subtotal</span>
-                  <span className="mono">₹{subtotal.toFixed(2)}</span>
+                  <span className="muted">Total at MRP</span>
+                  <span className="mono">₹{totalMrp.toFixed(2)}</span>
                 </div>
                 {discountVal > 0 && (
-                  <div className="row spread" style={{ color: '#22c55e' }}>
-                    <span>Discount</span>
+                  <div className="row spread" style={{ color: '#16a34a' }}>
+                    <span>Discount (MRP − Selling Price)</span>
                     <span className="mono">-₹{discountVal.toFixed(2)}</span>
                   </div>
                 )}
@@ -773,6 +903,7 @@ export default function Billing() {
                   <th>Customer</th>
                   <th>Payment</th>
                   <th>Items Sold</th>
+                  <th>Discount</th>
                   <th>Total Amount</th>
                   <th>Actions</th>
                 </tr>
@@ -780,12 +911,12 @@ export default function Billing() {
               <tbody>
                 {loadingBills && (
                   <tr>
-                    <td colSpan={7} className="empty">Loading bill history…</td>
+                    <td colSpan={8} className="empty">Loading bill history…</td>
                   </tr>
                 )}
                 {!loadingBills && filteredBills.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="empty">No bills found matching your criteria.</td>
+                    <td colSpan={8} className="empty">No bills found matching your criteria.</td>
                   </tr>
                 )}
                 {filteredBills.map((b) => (
@@ -812,6 +943,15 @@ export default function Billing() {
                     <td>
                       <div><b>{b.totalQty || (b.items ? b.items.reduce((s, it) => s + (it.qty || 0), 0) : 0)}</b> units</div>
                       <div className="faint" style={{ fontSize: 11 }}>{b.items?.length || 0} product(s)</div>
+                    </td>
+                    <td>
+                      {Number(b.discount || 0) > 0 ? (
+                        <span className="badge green sm" style={{ fontWeight: 700 }}>
+                          -₹{Number(b.discount).toFixed(2)}
+                        </span>
+                      ) : (
+                        <span className="faint">—</span>
+                      )}
                     </td>
                     <td className="mono" style={{ fontWeight: 700, fontSize: 14 }}>
                       ₹{Number(b.grandTotal || b.subtotal || 0).toFixed(2)}
@@ -945,6 +1085,11 @@ export default function Billing() {
                     Tel: {activeReceipt.shopPhone || activeLocation?.phone || activeLocation?.ownerPhone}
                   </div>
                 )}
+                {(activeReceipt.gstNumber || activeLocation?.gstNumber || activeLocation?.gstin) && (
+                  <div style={{ fontSize: 11, fontWeight: 700, color: '#111827', marginTop: 3 }}>
+                    GSTIN: {activeReceipt.gstNumber || activeLocation?.gstNumber || activeLocation?.gstin}
+                  </div>
+                )}
               </div>
 
               {/* Invoice Metadata */}
@@ -970,6 +1115,7 @@ export default function Billing() {
                   <tr style={{ borderBottom: '1px solid #9ca3af', textAlign: 'left' }}>
                     <th style={{ padding: '4px 0' }}>Item</th>
                     <th style={{ padding: '4px 0', textAlign: 'center' }}>Qty</th>
+                    <th style={{ padding: '4px 0', textAlign: 'right' }}>MRP</th>
                     <th style={{ padding: '4px 0', textAlign: 'right' }}>Rate</th>
                     <th style={{ padding: '4px 0', textAlign: 'right' }}>Amt</th>
                   </tr>
@@ -984,6 +1130,9 @@ export default function Billing() {
                         </div>
                       </td>
                       <td style={{ padding: '6px 0', textAlign: 'center' }}>{it.qty}</td>
+                      <td style={{ padding: '6px 0', textAlign: 'right', color: '#6b7280' }}>
+                        ₹{Number(it.mrp || it.unitPrice).toFixed(2)}
+                      </td>
                       <td style={{ padding: '6px 0', textAlign: 'right' }}>₹{Number(it.unitPrice).toFixed(2)}</td>
                       <td style={{ padding: '6px 0', textAlign: 'right', fontWeight: 600 }}>
                         ₹{Number(it.subtotal || it.qty * it.unitPrice).toFixed(2)}
@@ -995,16 +1144,28 @@ export default function Billing() {
 
               {/* Financial Totals */}
               <div style={{ borderTop: '1px dashed #d1d5db', paddingTop: 8, fontSize: 12 }}>
+                {activeReceipt.totalMrp > 0 && activeReceipt.totalMrp > activeReceipt.subtotal && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, color: '#4b5563' }}>
+                    <span>Total MRP</span>
+                    <span style={{ textDecoration: 'line-through' }}>₹{Number(activeReceipt.totalMrp).toFixed(2)}</span>
+                  </div>
+                )}
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
                   <span>Subtotal</span>
                   <span>₹{Number(activeReceipt.subtotal).toFixed(2)}</span>
                 </div>
-                {activeReceipt.discount > 0 && (
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4, color: '#16a34a' }}>
-                    <span>Discount</span>
-                    <span>-₹{Number(activeReceipt.discount).toFixed(2)}</span>
-                  </div>
-                )}
+                <div
+                  style={{
+                    display: 'flex',
+                    justifyContent: 'space-between',
+                    marginBottom: 4,
+                    color: Number(activeReceipt.discount) > 0 ? '#16a34a' : '#4b5563',
+                    fontWeight: Number(activeReceipt.discount) > 0 ? 600 : 400,
+                  }}
+                >
+                  <span>Discount Amount</span>
+                  <span>{Number(activeReceipt.discount) > 0 ? `-₹${Number(activeReceipt.discount).toFixed(2)}` : '₹0.00'}</span>
+                </div>
                 <div
                   style={{
                     display: 'flex',
@@ -1019,6 +1180,22 @@ export default function Billing() {
                   <span>Grand Total</span>
                   <span>₹{Number(activeReceipt.grandTotal || activeReceipt.subtotal).toFixed(2)}</span>
                 </div>
+                {activeReceipt.discount > 0 && (
+                  <div
+                    style={{
+                      textAlign: 'center',
+                      marginTop: 10,
+                      padding: '5px 8px',
+                      background: '#dcfce7',
+                      color: '#15803d',
+                      borderRadius: 4,
+                      fontWeight: 700,
+                      fontSize: 11,
+                    }}
+                  >
+                    🎉 You saved ₹{Number(activeReceipt.discount).toFixed(2)} on this order!
+                  </div>
+                )}
               </div>
 
               {/* Thank You Note */}

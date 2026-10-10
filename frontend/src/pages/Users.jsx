@@ -12,6 +12,7 @@ const emptyForm = {
   role: 'user',
   shopName: '',
   shopType: 'pharmacy',
+  gstNumber: '',
   address: '',
   subscriptionPlan: '1_month',
   assignedLocationIds: [],
@@ -115,6 +116,7 @@ export default function Users() {
         role: form.role,
         shopName: form.shopName.trim(),
         shopType: form.shopType,
+        gstNumber: form.gstNumber.trim().toUpperCase(),
         address: mapResult.formattedAddress || form.address.trim(),
         coordinates: { lat: mapResult.lat, lon: mapResult.lon },
         googleMapsUrl: mapResult.googleMapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(form.address)}`,
@@ -260,6 +262,16 @@ export default function Users() {
                     </option>
                   ))}
                 </select>
+              </div>
+              <div className="field">
+                <label>GST Number / GSTIN (Printed on Bills)</label>
+                <input
+                  className="input mono"
+                  placeholder="e.g. 07AAAAA0000A1Z5 (15-digit GSTIN)"
+                  maxLength={15}
+                  value={form.gstNumber}
+                  onChange={(e) => setForm({ ...form, gstNumber: e.target.value.toUpperCase() })}
+                />
               </div>
             </div>
 
@@ -487,6 +499,11 @@ export default function Users() {
                         <div style={{ fontSize: 11.5, marginTop: 2 }}>
                           <span className="badge sm muted">{shopTypeBadge(shopType)}</span>
                         </div>
+                        {(u.gstNumber || loc.gstNumber) && (
+                          <div className="mono faint" style={{ fontSize: 11, color: 'var(--accent, #6366f1)', marginTop: 3 }}>
+                            GSTIN: {u.gstNumber || loc.gstNumber}
+                          </div>
+                        )}
                       </td>
                       <td>
                         <div style={{ fontWeight: 500 }}>{u.name || '—'}</div>

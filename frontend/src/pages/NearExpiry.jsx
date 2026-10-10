@@ -1,12 +1,18 @@
-﻿import { useState, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { useWorkspace } from '../lib/WorkspaceContext'
 import { useAlerts } from '../lib/AlertsContext'
 import { useAuth } from '../lib/AuthContext'
 import { useToast } from '../lib/ToastContext'
-import { removeBatch } from '../lib/api'
+import { removeBatch, logExpiryAlert } from '../lib/api'
 import { daysUntil, formatExpiry } from '../lib/fefo'
 import { EXPIRY_WINDOWS } from '../lib/constants'
 import { printQrLabel } from '../components/QrLabel'
+import {
+  buildWhatsAppExpiryMessage,
+  buildSmsExpiryMessage,
+  getWhatsAppUrl,
+  getSmsUrl,
+} from '../lib/expiryNotifications'
 import * as XLSX from 'xlsx'
 
 export default function NearExpiry() {
@@ -20,6 +26,10 @@ export default function NearExpiry() {
   const [sortBy, setSortBy] = useState('soonest') // soonest | furthest | qty_desc | name_asc
   const [writeOffModal, setWriteOffModal] = useState(null)
   const [writeOffReason, setWriteOffReason] = useState('Expired stock write-off')
+  const [notifyModal, setNotifyModal] = useState(null)
+  const [msgTab, setMsgTab] = useState('whatsapp') // 'whatsapp' | 'sms'
+  const [recipientPhone, setRecipientPhone] = useState('')
+  const [recipientName, setRecipientName] = useState('')
   const [busy, setBusy] = useState(false)
 
   // Enrich batches with expiry calculations
@@ -218,6 +228,116 @@ export default function NearExpiry() {
     toast.ok('Clearance sheet exported successfully.')
   }
 
+  // Open WhatsApp & SMS Notification Modal
+  const handleOpenNotifyModal = (singleItem = null) => {
+    let itemsToAlert = []
+    if (singleItem) {
+      itemsToAlert = [singleItem]
+    } else {
+      const expiringNow = enriched.filter((b) => b.days !== null && b.days <= EXPIRY_WINDOWS.WARN)
+      itemsToAlert = expiringNow.length > 0 ? expiringNow : filtered
+    }
+
+    if (!itemsToAlert.length) {
+      return toast.info('No expiring or expired batches to alert about.')
+    }
+
+    const defaultPhone =
+      activeLocation?.ownerPhone ||
+      activeLocation?.phone ||
+      profile?.phone ||
+      ''
+
+    const defaultName =
+      activeLocation?.ownerName ||
+      profile?.name ||
+      profile?.displayName ||
+      'Account Holder'
+
+    setRecipientPhone(defaultPhone)
+    setRecipientName(defaultName)
+    setNotifyModal({
+      items: itemsToAlert,
+      shopName: activeLocation?.name || 'My Store',
+    })
+    setMsgTab('whatsapp')
+  }
+
+  const handleSendWhatsApp = () => {
+    if (!notifyModal) return
+    const message = buildWhatsAppExpiryMessage({
+      shopName: notifyModal.shopName,
+      accountHolderName: recipientName,
+      items: notifyModal.items,
+    })
+    const url = getWhatsAppUrl(recipientPhone, message)
+    window.open(url, '_blank')
+
+    logExpiryAlert({
+      locationId: activeLocation?.id,
+      channel: 'whatsapp',
+      phone: recipientPhone,
+      recipientName,
+      itemCount: notifyModal.items.length,
+      totalUnits: notifyModal.items.reduce((s, it) => s + (Number(it.qty) || 0), 0),
+      messagePreview: message,
+      by: profile?.email,
+    })
+
+    toast.ok('Opening WhatsApp with pre-filled expiry alert!')
+  }
+
+  const handleSendSms = () => {
+    if (!notifyModal) return
+    const message = buildSmsExpiryMessage({
+      shopName: notifyModal.shopName,
+      items: notifyModal.items,
+    })
+    const url = getSmsUrl(recipientPhone, message)
+
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(message).catch(() => {})
+    }
+
+    window.open(url, '_self')
+
+    logExpiryAlert({
+      locationId: activeLocation?.id,
+      channel: 'sms',
+      phone: recipientPhone,
+      recipientName,
+      itemCount: notifyModal.items.length,
+      totalUnits: notifyModal.items.reduce((s, it) => s + (Number(it.qty) || 0), 0),
+      messagePreview: message,
+      by: profile?.email,
+    })
+
+    toast.ok('Triggered SMS client (message copied to clipboard)!')
+  }
+
+  const handleCopyAlert = (channel = 'whatsapp') => {
+    if (!notifyModal) return
+    const text =
+      channel === 'whatsapp'
+        ? buildWhatsAppExpiryMessage({
+            shopName: notifyModal.shopName,
+            accountHolderName: recipientName,
+            items: notifyModal.items,
+          })
+        : buildSmsExpiryMessage({
+            shopName: notifyModal.shopName,
+            items: notifyModal.items,
+          })
+
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        toast.ok(`${channel === 'whatsapp' ? 'WhatsApp' : 'SMS'} alert copied to clipboard!`)
+      }).catch(() => {
+        toast.err('Failed to copy to clipboard.')
+      })
+    }
+  }
+
   return (
     <div className="page">
       {/* Page Header */}
@@ -228,7 +348,21 @@ export default function NearExpiry() {
             {activeLocation ? activeLocation.name : 'All locations'} · Batches expiring soon or expired (FEFO priority)
           </div>
         </div>
-        <div className="row" style={{ gap: 8 }}>
+        <div className="row wrap" style={{ gap: 8 }}>
+          <button
+            className="btn sm"
+            onClick={() => handleOpenNotifyModal()}
+            style={{
+              background: 'linear-gradient(135deg, #22c55e, #16a34a)',
+              color: '#ffffff',
+              border: 'none',
+              fontWeight: 700,
+              boxShadow: '0 2px 8px rgba(34, 197, 94, 0.3)',
+            }}
+            title="Send WhatsApp & SMS expiry alert to the account holder"
+          >
+            📱 Alert Account Holder (WhatsApp &amp; SMS)
+          </button>
           <button className="btn sm" onClick={refresh} title="Refresh inventory">
             🔄 Refresh
           </button>
@@ -565,6 +699,20 @@ export default function NearExpiry() {
                         <div className="row" style={{ gap: 6 }}>
                           <button
                             className="btn sm"
+                            onClick={() => handleOpenNotifyModal(r)}
+                            title="Send WhatsApp or SMS alert about this expiring batch"
+                            style={{
+                              padding: '4px 8px',
+                              fontSize: 11.5,
+                              color: '#22c55e',
+                              borderColor: 'rgba(34, 197, 94, 0.4)',
+                              background: 'rgba(34, 197, 94, 0.08)',
+                            }}
+                          >
+                            💬 Alert
+                          </button>
+                          <button
+                            className="btn sm"
                             onClick={() => printQrLabel({ sku: r.sku, batchNo: r.batchNo, expiryDate: r.expiryDate, locationId: r.locationId })}
                             title="Print clearance shelf label"
                             style={{ padding: '4px 8px', fontSize: 11.5 }}
@@ -649,6 +797,193 @@ export default function NearExpiry() {
               <button className="btn danger" disabled={busy} onClick={handleWriteOff}>
                 {busy ? 'Writing Off…' : 'Confirm Disposal'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* WhatsApp & SMS Expiry Notification Modal */}
+      {notifyModal && (
+        <div className="modal-backdrop" onClick={() => setNotifyModal(null)}>
+          <div
+            className="modal card"
+            style={{ maxWidth: 540, maxHeight: '90vh', overflowY: 'auto' }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="row spread" style={{ marginBottom: 12 }}>
+              <div className="row" style={{ alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 22 }}>📱</span>
+                <div>
+                  <h3 style={{ margin: 0, fontSize: 16 }}>Alert Account Holder</h3>
+                  <div className="faint" style={{ fontSize: 12 }}>
+                    Send Near-Expiry Warning via WhatsApp &amp; SMS
+                  </div>
+                </div>
+              </div>
+              <button className="btn sm" onClick={() => setNotifyModal(null)}>✕</button>
+            </div>
+
+            {/* Recipient Card */}
+            <div
+              style={{
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid var(--border)',
+                borderRadius: 8,
+                padding: 12,
+                marginBottom: 14,
+              }}
+            >
+              <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 8, color: 'var(--muted)' }}>
+                RECIPIENT (ACCOUNT HOLDER)
+              </div>
+              <div className="grid cols-2" style={{ gap: 10 }}>
+                <div className="field">
+                  <label style={{ fontSize: 11 }}>Account Holder Name</label>
+                  <input
+                    className="input"
+                    value={recipientName}
+                    onChange={(e) => setRecipientName(e.target.value)}
+                    placeholder="e.g. Store Owner"
+                  />
+                </div>
+                <div className="field">
+                  <label style={{ fontSize: 11 }}>Mobile / WhatsApp Number</label>
+                  <input
+                    className="input mono"
+                    value={recipientPhone}
+                    onChange={(e) => setRecipientPhone(e.target.value)}
+                    placeholder="e.g. +91 98765 43210"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Expiring Batches Summary */}
+            <div
+              style={{
+                background: 'rgba(239, 68, 68, 0.08)',
+                border: '1px solid rgba(239, 68, 68, 0.25)',
+                borderRadius: 8,
+                padding: '10px 14px',
+                marginBottom: 14,
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <div>
+                <b style={{ color: '#ef4444' }}>
+                  {notifyModal.items.length} Expiring Batch{notifyModal.items.length > 1 ? 'es' : ''} Selected
+                </b>
+                <div className="muted" style={{ fontSize: 11.5, marginTop: 2 }}>
+                  Total {notifyModal.items.reduce((s, it) => s + (Number(it.qty) || 0), 0)} units at risk in{' '}
+                  <b>{notifyModal.shopName}</b>
+                </div>
+              </div>
+              <span className="badge sm red">FEFO Priority</span>
+            </div>
+
+            {/* Channel Tabs */}
+            <div className="pill-tabs" style={{ marginBottom: 12 }}>
+              <button
+                className={msgTab === 'whatsapp' ? 'on' : ''}
+                onClick={() => setMsgTab('whatsapp')}
+              >
+                💬 WhatsApp Preview
+              </button>
+              <button
+                className={msgTab === 'sms' ? 'on' : ''}
+                onClick={() => setMsgTab('sms')}
+              >
+                ✉️ SMS Preview
+              </button>
+            </div>
+
+            {/* Message Previews */}
+            {msgTab === 'whatsapp' ? (
+              <div
+                style={{
+                  background: 'rgba(34, 197, 94, 0.06)',
+                  border: '1px solid rgba(34, 197, 94, 0.3)',
+                  borderRadius: 8,
+                  padding: 12,
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  whiteSpace: 'pre-wrap',
+                  maxHeight: 220,
+                  overflowY: 'auto',
+                  color: 'var(--text)',
+                }}
+              >
+                {buildWhatsAppExpiryMessage({
+                  shopName: notifyModal.shopName,
+                  accountHolderName: recipientName,
+                  items: notifyModal.items,
+                })}
+              </div>
+            ) : (
+              <div
+                style={{
+                  background: 'rgba(56, 189, 248, 0.06)',
+                  border: '1px solid rgba(56, 189, 248, 0.3)',
+                  borderRadius: 8,
+                  padding: 12,
+                  fontFamily: 'monospace',
+                  fontSize: 12,
+                  whiteSpace: 'pre-wrap',
+                  maxHeight: 180,
+                  overflowY: 'auto',
+                  color: 'var(--text)',
+                }}
+              >
+                {buildSmsExpiryMessage({
+                  shopName: notifyModal.shopName,
+                  items: notifyModal.items,
+                })}
+              </div>
+            )}
+
+            {/* Modal Actions */}
+            <div className="row spread wrap" style={{ marginTop: 16, gap: 8 }}>
+              <button
+                className="btn sm"
+                onClick={() => handleCopyAlert(msgTab)}
+                title="Copy message text to clipboard"
+              >
+                📋 Copy {msgTab === 'whatsapp' ? 'WhatsApp' : 'SMS'} Text
+              </button>
+
+              <div className="row wrap" style={{ gap: 8 }}>
+                <button className="btn sm" onClick={() => setNotifyModal(null)}>
+                  Close
+                </button>
+                <button
+                  className="btn sm"
+                  style={{
+                    background: '#0284c7',
+                    color: '#ffffff',
+                    border: 'none',
+                    fontWeight: 600,
+                  }}
+                  onClick={handleSendSms}
+                  title="Send via SMS to Account Holder"
+                >
+                  ✉️ Send via SMS
+                </button>
+                <button
+                  className="btn sm"
+                  style={{
+                    background: '#16a34a',
+                    color: '#ffffff',
+                    border: 'none',
+                    fontWeight: 700,
+                  }}
+                  onClick={handleSendWhatsApp}
+                  title="Send via WhatsApp to Account Holder"
+                >
+                  🟢 Send via WhatsApp
+                </button>
+              </div>
             </div>
           </div>
         </div>

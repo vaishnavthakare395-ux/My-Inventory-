@@ -63,12 +63,12 @@ service cloud.firestore {
       // Shop users and managers register products; admin accounts only manage user onboarding.
       allow create: if signedIn() && !isAdmin();
       allow update: if signedIn() && !isAdmin();
-      allow delete: if false;
+      allow delete: if signedIn() && !isAdmin();
     }
 
     // Users manage themselves; managers/admins create+edit accounts.
     match /users/{uid} {
-      allow read: if signedIn() && (request.auth.uid == uid || isManagerOrAdmin());
+      allow read: if signedIn();
       allow create: if signedIn() && (request.auth.uid == uid || isAdmin() || managerCanWriteUser());
       allow update: if signedIn() && (request.auth.uid == uid || isAdmin() || (resource.data.role == 'user' && managerCanWriteUser()));
       allow delete: if isAdmin();
@@ -90,7 +90,7 @@ service cloud.firestore {
         && request.resource.data.locationId == resource.data.locationId
         && request.resource.data.batchNo == resource.data.batchNo
         && validQty(request.resource.data.qty);
-      allow delete: if isManagerOrAdmin();
+      allow delete: if signedIn() && !isAdmin();
     }
 
     // Emergency stock purchases / orders between partner shops.

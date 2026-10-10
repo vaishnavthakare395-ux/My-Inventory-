@@ -111,6 +111,8 @@ export function AuthProvider({ children }) {
         id: locRef.id,
         name: shopName,
         ownerEmail: email,
+        ownerName: name || email.split('@')[0],
+        ownerId: cred.user.uid,
         ownerPhone: phone || '',
         phone: phone || '',
         active: true,
