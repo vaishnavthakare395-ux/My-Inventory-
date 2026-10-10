@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/AuthContext'
 import { useWorkspace } from '../lib/WorkspaceContext'
 import { useAlerts } from '../lib/AlertsContext'
@@ -35,6 +36,56 @@ export default function Dashboard() {
         <Stat label="Expiry alerts" value={counts.expiry} />
         <Stat label="Low stock" value={counts.lowStock} />
       </div>
+
+      {counts.expiry > 0 && (
+        <div
+          className="card"
+          style={{
+            marginBottom: 16,
+            background: 'rgba(239, 68, 68, 0.08)',
+            border: '1px solid rgba(239, 68, 68, 0.3)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 12,
+            padding: '12px 16px',
+            borderRadius: 8,
+          }}
+        >
+          <div className="row" style={{ gap: 10, alignItems: 'center' }}>
+            <span style={{ fontSize: 24 }}>⚠️</span>
+            <div>
+              <div style={{ fontWeight: 700, color: '#ef4444', fontSize: 14 }}>
+                {counts.expiry} Product Batch(es) Expiring Soon in {activeLocation?.name || 'Your Shop'}
+              </div>
+              <div className="faint" style={{ fontSize: 12, marginTop: 2 }}>
+                Account Holder: <b>{activeLocation?.ownerName || profile?.name || 'Account Holder'}</b>
+                {(activeLocation?.ownerPhone || profile?.phone) && (
+                  <span> · Mobile: <b className="mono">{activeLocation?.ownerPhone || profile?.phone}</b></span>
+                )}
+              </div>
+            </div>
+          </div>
+          <Link
+            to="/near-expiry"
+            className="btn sm"
+            style={{
+              background: '#0284c7',
+              color: '#ffffff',
+              border: 'none',
+              fontWeight: 700,
+              textDecoration: 'none',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 6,
+              boxShadow: '0 2px 6px rgba(2, 132, 199, 0.3)',
+            }}
+          >
+            ✉️ Send Expiry SMS to Account Holder
+          </Link>
+        </div>
+      )}
 
       <div className="card">
         <div className="row spread" style={{ marginBottom: 4 }}>

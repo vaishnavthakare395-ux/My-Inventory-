@@ -69,14 +69,16 @@ export function buildWhatsAppExpiryMessage({
  */
 export function buildSmsExpiryMessage({
   shopName = 'My Store',
+  accountHolderName = '',
   items = [],
 }) {
   const count = items.length
   const totalUnits = items.reduce((s, it) => s + (Number(it.qty) || 0), 0)
   const topNames = items.slice(0, 2).map((it) => it.product?.productName || it.productName || it.sku).join(', ')
   const more = count > 2 ? ` +${count - 2} more` : ''
+  const toPrefix = accountHolderName && accountHolderName !== 'Account Holder' ? ` (To: ${accountHolderName})` : ''
 
-  return `[StockFlow Alert] ${shopName}: ${count} batches (${totalUnits} units) expiring soon (${topNames}${more}). Please review FEFO clearance in StockFlow.`
+  return `[StockFlow Alert] ${shopName}${toPrefix}: ${count} batches (${totalUnits} units) expiring soon (${topNames}${more}). Please review FEFO clearance in StockFlow.`
 }
 
 /**

@@ -229,7 +229,7 @@ export default function NearExpiry() {
   }
 
   // Open WhatsApp & SMS Notification Modal
-  const handleOpenNotifyModal = (singleItem = null) => {
+  const handleOpenNotifyModal = (singleItem = null, channel = 'sms') => {
     let itemsToAlert = []
     if (singleItem) {
       itemsToAlert = [singleItem]
@@ -260,7 +260,62 @@ export default function NearExpiry() {
       items: itemsToAlert,
       shopName: activeLocation?.name || 'My Store',
     })
-    setMsgTab('whatsapp')
+    setMsgTab(channel)
+  }
+
+  // 1-Click Instant SMS to Account Holder
+  const handleInstantSendSms = () => {
+    const expiringNow = enriched.filter((b) => b.days !== null && b.days <= EXPIRY_WINDOWS.WARN)
+    const itemsToAlert = expiringNow.length > 0 ? expiringNow : filtered
+    if (!itemsToAlert.length) {
+      return toast.info('No expiring or expired batches to alert about.')
+    }
+
+    const defaultPhone =
+      activeLocation?.ownerPhone ||
+      activeLocation?.phone ||
+      profile?.phone ||
+      ''
+
+    const defaultName =
+      activeLocation?.ownerName ||
+      profile?.name ||
+      profile?.displayName ||
+      'Account Holder'
+
+    const shopName = activeLocation?.name || 'My Store'
+
+    if (!defaultPhone) {
+      handleOpenNotifyModal(null, 'sms')
+      toast.err('Please enter the account holder mobile number to send SMS.')
+      return
+    }
+
+    const message = buildSmsExpiryMessage({
+      shopName,
+      accountHolderName: defaultName,
+      items: itemsToAlert,
+    })
+    const url = getSmsUrl(defaultPhone, message)
+
+    if (navigator?.clipboard?.writeText) {
+      navigator.clipboard.writeText(message).catch(() => {})
+    }
+
+    window.open(url, '_self')
+
+    logExpiryAlert({
+      locationId: activeLocation?.id,
+      channel: 'sms',
+      phone: defaultPhone,
+      recipientName: defaultName,
+      itemCount: itemsToAlert.length,
+      totalUnits: itemsToAlert.reduce((s, it) => s + (Number(it.qty) || 0), 0),
+      messagePreview: message,
+      by: profile?.email,
+    })
+
+    toast.ok(`Opening SMS to ${defaultName} (${defaultPhone})! (Message copied to clipboard)`)
   }
 
   const handleSendWhatsApp = () => {
@@ -291,6 +346,7 @@ export default function NearExpiry() {
     if (!notifyModal) return
     const message = buildSmsExpiryMessage({
       shopName: notifyModal.shopName,
+      accountHolderName: recipientName,
       items: notifyModal.items,
     })
     const url = getSmsUrl(recipientPhone, message)
@@ -312,7 +368,7 @@ export default function NearExpiry() {
       by: profile?.email,
     })
 
-    toast.ok('Triggered SMS client (message copied to clipboard)!')
+    toast.ok(`Opening SMS to ${recipientName} (${recipientPhone})! (Message copied to clipboard)`)
   }
 
   const handleCopyAlert = (channel = 'whatsapp') => {
@@ -351,17 +407,37 @@ export default function NearExpiry() {
         <div className="row wrap" style={{ gap: 8 }}>
           <button
             className="btn sm"
-            onClick={() => handleOpenNotifyModal()}
+            onClick={handleInstantSendSms}
+            style={{
+              background: 'linear-gradient(135deg, #0284c7, #0369a1)',
+              color: '#ffffff',
+              border: 'none',
+              fontWeight: 700,
+              boxShadow: '0 2px 8px rgba(2, 132, 199, 0.35)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
+            }}
+            title="Send SMS alert for near-expiry products directly to the account holder's mobile number"
+          >
+            ✉️ Send SMS to Account Holder
+          </button>
+          <button
+            className="btn sm"
+            onClick={() => handleOpenNotifyModal(null, 'whatsapp')}
             style={{
               background: 'linear-gradient(135deg, #22c55e, #16a34a)',
               color: '#ffffff',
               border: 'none',
-              fontWeight: 700,
-              boxShadow: '0 2px 8px rgba(34, 197, 94, 0.3)',
+              fontWeight: 600,
+              boxShadow: '0 2px 8px rgba(34, 197, 94, 0.25)',
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 5,
             }}
-            title="Send WhatsApp & SMS expiry alert to the account holder"
+            title="Send WhatsApp expiry alert to the account holder"
           >
-            📱 Alert Account Holder (WhatsApp &amp; SMS)
+            💬 WhatsApp Alert
           </button>
           <button className="btn sm" onClick={refresh} title="Refresh inventory">
             🔄 Refresh
@@ -699,8 +775,22 @@ export default function NearExpiry() {
                         <div className="row" style={{ gap: 6 }}>
                           <button
                             className="btn sm"
-                            onClick={() => handleOpenNotifyModal(r)}
-                            title="Send WhatsApp or SMS alert about this expiring batch"
+                            onClick={() => handleOpenNotifyModal(r, 'sms')}
+                            title="Send SMS alert to account holder about this expiring batch"
+                            style={{
+                              padding: '4px 8px',
+                              fontSize: 11.5,
+                              color: '#0284c7',
+                              borderColor: 'rgba(2, 132, 199, 0.4)',
+                              background: 'rgba(2, 132, 199, 0.08)',
+                            }}
+                          >
+                            ✉️ SMS
+                          </button>
+                          <button
+                            className="btn sm"
+                            onClick={() => handleOpenNotifyModal(r, 'whatsapp')}
+                            title="Send WhatsApp alert about this expiring batch"
                             style={{
                               padding: '4px 8px',
                               fontSize: 11.5,
@@ -709,7 +799,7 @@ export default function NearExpiry() {
                               background: 'rgba(34, 197, 94, 0.08)',
                             }}
                           >
-                            💬 Alert
+                            💬 WA
                           </button>
                           <button
                             className="btn sm"
