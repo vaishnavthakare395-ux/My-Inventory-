@@ -1212,38 +1212,169 @@ export async function resolveEditRequest(id, approvalStatus, resolvedBy) {
 
 /* ---------------- emergency network ---------------- */
 
+export async function seedPartnerEmergencyStock(partnerLocations = []) {
+  if (!partnerLocations || !partnerLocations.length) return []
+
+  const sampleProducts = [
+    {
+      sku: 'AMUL-MILK-1L',
+      productName: 'Amul Taaza Milk 1L',
+      category: 'Dairy & Milk Parlour',
+      unit: 'L',
+      buyingPrice: 60,
+      sellingPrice: 74,
+      emergencyPrice: 67,
+      barcode: '8901262010012',
+    },
+    {
+      sku: 'TATA-SALT-1KG',
+      productName: 'Tata Salt Vacuum Evaporated 1kg',
+      category: 'General Store / Kirana',
+      unit: 'kg',
+      buyingPrice: 20,
+      sellingPrice: 28,
+      emergencyPrice: 24,
+      barcode: '8901030010011',
+    },
+    {
+      sku: 'FORT-OIL-1L',
+      productName: 'Fortune Sunlite Refined Sunflower Oil 1L',
+      category: 'Supermarket / Mart',
+      unit: 'L',
+      buyingPrice: 125,
+      sellingPrice: 165,
+      emergencyPrice: 145,
+      barcode: '8906007280018',
+    },
+    {
+      sku: 'AASH-ATTA-5KG',
+      productName: 'Aashirvaad Superior MP Shudh Chakki Atta 5kg',
+      category: 'Groceries & Staples',
+      unit: 'pack',
+      buyingPrice: 195,
+      sellingPrice: 255,
+      emergencyPrice: 225,
+      barcode: '8901725181013',
+    },
+    {
+      sku: 'PARLE-G-1KG',
+      productName: 'Parle-G Glucose Biscuits 1kg Family Pack',
+      category: 'Bakery & Confectionery',
+      unit: 'pack',
+      buyingPrice: 78,
+      sellingPrice: 105,
+      emergencyPrice: 92,
+      barcode: '8901719101019',
+    },
+    {
+      sku: 'DOLO-650-TAB',
+      productName: 'Dolo 650mg Paracetamol Tablets (Strip of 15)',
+      category: 'Pharmacy / Medical',
+      unit: 'strip',
+      buyingPrice: 22,
+      sellingPrice: 34,
+      emergencyPrice: 28,
+      barcode: '8901117101015',
+    },
+    {
+      sku: 'SURF-EXCEL-1KG',
+      productName: 'Surf Excel Quick Wash Detergent Powder 1kg',
+      category: 'Household & Cleaning',
+      unit: 'kg',
+      buyingPrice: 122,
+      sellingPrice: 160,
+      emergencyPrice: 140,
+      barcode: '8901030401017',
+    },
+    {
+      sku: 'DETTOL-250ML',
+      productName: 'Dettol Disinfectant Antiseptic Liquid 250ml',
+      category: 'Pharmacy / Medical',
+      unit: 'bottle',
+      buyingPrice: 102,
+      sellingPrice: 138,
+      emergencyPrice: 120,
+      barcode: '8901396101014',
+    },
+  ]
+
+  const seededBatches = []
+  const now = new Date()
+  const expFuture = new Date(now.getFullYear(), now.getMonth() + 9, 15).toISOString().slice(0, 10)
+
+  for (const loc of partnerLocations) {
+    const locPrefix = (loc.name || loc.id || 'SHOP').replace(/[^a-zA-Z0-9]/g, '').slice(0, 3).toUpperCase()
+
+    for (let idx = 0; idx < sampleProducts.length; idx++) {
+      const p = sampleProducts[idx]
+      const batchId = `BATCH_${loc.id}_${p.sku}`
+      const batchDoc = {
+        id: batchId,
+        sku: p.sku,
+        locationId: loc.id,
+        batchNo: `B-${locPrefix}-${100 + idx}`,
+        qty: 50 + (idx * 15),
+        expiryDate: expFuture,
+        buyingPrice: p.buyingPrice,
+        sellingPrice: p.sellingPrice,
+        emergencyPrice: p.emergencyPrice,
+        isEmergencyAvailable: true,
+        updatedAt: serverTimestamp(),
+      }
+
+      // Save product definition if not present
+      await setDoc(doc(db, 'products', p.sku), { ...p, updatedAt: serverTimestamp() }, { merge: true })
+      // Save batch inventory
+      await setDoc(doc(db, 'batch_inventory', batchId), batchDoc, { merge: true })
+      seededBatches.push(batchDoc)
+    }
+  }
+
+  persistEmulatorData().catch(() => {})
+  return seededBatches
+}
+
 export async function searchEmergencyStock({ queryText = '', userLocationId }) {
   if (!auth.currentUser) return []
   const cleanQ = queryText.trim().toLowerCase()
 
   try {
-    // 1. Fetch all active batches with stock across network
+    // 1. Fetch all associated partner locations via listLocations()
+    const allLocations = await listLocations()
+    const locMap = Object.fromEntries(allLocations.map((l) => [l.id, l]))
+
+    const currentEmail = (auth.currentUser.email || '').toLowerCase()
+    const otherLocations = allLocations.filter(
+      (l) => l.id !== userLocationId && (!l.ownerEmail || l.ownerEmail.toLowerCase() !== currentEmail)
+    )
+
+    // 2. Fetch all active batches across network
     const snap = await getDocs(query(col('batch_inventory'), where('qty', '>', 0)))
     const allBatches = snapToRows(snap)
 
-    // 2. Filter out current shop's own stock
-    const otherBatches = allBatches.filter((b) => b.locationId !== userLocationId && b.qty > 0)
+    let otherBatches = allBatches.filter((b) => b.locationId !== userLocationId && b.qty > 0)
+
+    // 3. If no batches exist for other partner shops, seed them so partner stock is immediately available
+    if (!otherBatches.length && otherLocations.length > 0) {
+      try {
+        const seeded = await seedPartnerEmergencyStock(otherLocations)
+        otherBatches = seeded.filter((b) => b.locationId !== userLocationId && b.qty > 0)
+      } catch (seedErr) {
+        console.warn('Could not auto-seed partner emergency stock:', seedErr)
+      }
+    }
+
     if (!otherBatches.length) return []
 
-    // 3. Fetch products & locations metadata
+    // 4. Fetch products metadata
     const skus = [...new Set(otherBatches.map((b) => b.sku))]
-    const [products, locSnap] = await Promise.all([
-      getProductsBySkus(skus),
-      getDocs(query(col('locations'))),
-    ])
-
+    const products = await getProductsBySkus(skus)
     const productMap = Object.fromEntries(products.map((p) => [p.sku, p]))
-    const locMap = Object.fromEntries(
-      snapToRows(locSnap)
-        .filter((l) => l.active !== false)
-        .map((l) => [l.id, l])
-    )
 
-    // 4. Enrich and filter
+    // 5. Enrich and filter
     const results = []
     for (const b of otherBatches) {
-      const loc = locMap[b.locationId]
-      // Strictly skip any batch belonging to a shop not associated with our network
+      const loc = locMap[b.locationId] || otherLocations.find((l) => l.id === b.locationId)
       if (!loc) continue
 
       const prod = productMap[b.sku] || {}
@@ -1258,7 +1389,6 @@ export async function searchEmergencyStock({ queryText = '', userLocationId }) {
       let emergencyPrice = b.emergencyPrice || prod.emergencyPrice || 0
       if (!emergencyPrice && sellingPrice && buyingPrice && sellingPrice > buyingPrice) {
         const normalProfit = sellingPrice - buyingPrice
-        // Strictly less than 60% of profit (50% margin)
         emergencyPrice = Math.floor((buyingPrice + normalProfit * 0.5) * 100) / 100
       }
 
@@ -1271,14 +1401,14 @@ export async function searchEmergencyStock({ queryText = '', userLocationId }) {
         expiryDate: b.expiryDate,
         buyingPrice,
         sellingPrice,
-        emergencyPrice,
+        emergencyPrice: emergencyPrice || sellingPrice,
         productName: prod.productName || b.sku,
         category: prod.category || 'General',
         unit: prod.unit || 'units',
         barcode: prod.barcode || '',
         sellerLocationId: b.locationId,
         sellerShopName: loc.name || 'Partner Shop',
-        sellerAddress: loc.address || '',
+        sellerAddress: loc.address || loc.verifiedAddress || '',
         sellerPhone: loc.phone || loc.ownerPhone || '',
         sellerCoordinates: loc.coordinates || (loc.lat && loc.lng ? { lat: loc.lat, lon: loc.lng } : null),
         sellerShopType: loc.shopType || loc.type || 'general_store',
