@@ -1,10 +1,28 @@
 import { useState, useMemo } from 'react'
 import { SHOP_TYPES } from '../lib/constants'
 import { getDistanceKm, extractCoords } from '../lib/geoMesh'
+import { deleteStaffUser } from '../lib/api'
+import { useToast } from '../lib/ToastContext'
 
 export default function AssociatedShopsList({ locations = [], currentShop, currentProfile }) {
   const [searchTerm, setSearchTerm] = useState('')
   const [typeFilter, setTypeFilter] = useState('ALL')
+  const [deletingId, setDeletingId] = useState(null)
+  const toast = useToast()
+
+  const handleDeleteShop = async (shop) => {
+    if (!window.confirm(`Are you sure you want to delete "${shop.name}" from the network?`)) return
+    setDeletingId(shop.id)
+    try {
+      await deleteStaffUser({ locationId: shop.id, uid: shop.userId || shop.ownerId || shop.id })
+      toast.ok(`Deleted "${shop.name}". Please refresh to update.`)
+      window.location.reload()
+    } catch (err) {
+      toast.err('Failed to delete shop: ' + err.message)
+    } finally {
+      setDeletingId(null)
+    }
+  }
 
   // Extract reference coords for distance
   const currentCoords = useMemo(() => {
@@ -84,6 +102,11 @@ export default function AssociatedShopsList({ locations = [], currentShop, curre
           coords,
         }
       })
+      .filter((shop, idx, arr) => {
+        // Deduplicate shops: keep only unique shops by (normalized name + owner email)
+        const key = `${(shop.name || '').trim().toLowerCase()}__${(shop.ownerEmail || shop.phone || '').trim().toLowerCase()}`
+        return arr.findIndex((s) => `${(s.name || '').trim().toLowerCase()}__${(s.ownerEmail || s.phone || '').trim().toLowerCase()}` === key) === idx
+      })
       .sort((a, b) => {
         if (a.isCurrent) return -1
         if (b.isCurrent) return 1
@@ -157,7 +180,8 @@ export default function AssociatedShopsList({ locations = [], currentShop, curre
               <th style={{ textAlign: 'left', minWidth: 240 }}>Location &amp; Address</th>
               <th style={{ textAlign: 'left', minWidth: 160 }}>Registered Owner</th>
               <th style={{ textAlign: 'left', minWidth: 180 }}>Contact Details</th>
-              <th style={{ textAlign: 'right', minWidth: 120 }}>Proximity</th>
+              <th style={{ textAlign: 'right', minWidth: 110 }}>Proximity</th>
+              <th style={{ textAlign: 'center', minWidth: 80 }}>Action</th>
             </tr>
           </thead>
           <tbody>
@@ -365,6 +389,21 @@ export default function AssociatedShopsList({ locations = [], currentShop, curre
                       <span className="faint" style={{ fontSize: 11 }}>
                         Partner Network
                       </span>
+                    )}
+                  </td>
+
+                  {/* 7. Action: Delete / Remove */}
+                  <td style={{ verticalAlign: 'middle', padding: '12px 10px', textAlign: 'center' }}>
+                    {!shop.isCurrent && (
+                      <button
+                        className="btn danger sm"
+                        style={{ padding: '3px 8px', fontSize: 11.5 }}
+                        disabled={deletingId === shop.id}
+                        onClick={() => handleDeleteShop(shop)}
+                        title="Delete this shop from the network"
+                      >
+                        {deletingId === shop.id ? 'Deleting…' : 'Delete'}
+                      </button>
                     )}
                   </td>
                 </tr>

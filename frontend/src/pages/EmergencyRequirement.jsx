@@ -49,7 +49,7 @@ export default function EmergencyRequirement() {
 
   // Search & Filter State
   const [queryText, setQueryText] = useState('')
-  const [maxDistance, setMaxDistance] = useState(0) // 0 = All partner shops across network by default
+  const [maxDistance, setMaxDistance] = useState(10) // 10 km default
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
 
@@ -350,19 +350,14 @@ export default function EmergencyRequirement() {
               {/* Proximity Filter */}
               <div className="row" style={{ gap: 6, alignItems: 'center' }}>
                 <span className="faint" style={{ fontSize: 12 }}>Distance:</span>
-                {[
-                  { label: 'All Shops', val: 0 },
-                  { label: '≤ 10 km', val: 10 },
-                  { label: '≤ 25 km', val: 25 },
-                  { label: '≤ 50 km', val: 50 },
-                ].map((d) => (
+                {[5, 10, 25, 0].map((dist) => (
                   <button
-                    key={d.val}
-                    className={`btn sm ${maxDistance === d.val ? 'primary' : ''}`}
-                    onClick={() => setMaxDistance(d.val)}
+                    key={dist}
+                    className={`btn sm ${maxDistance === dist ? 'primary' : ''}`}
+                    onClick={() => setMaxDistance(dist)}
                     style={{ padding: '3px 8px', fontSize: 11.5 }}
                   >
-                    {d.label}
+                    {dist === 0 ? 'All' : `≤ ${dist} km`}
                   </button>
                 ))}
               </div>
