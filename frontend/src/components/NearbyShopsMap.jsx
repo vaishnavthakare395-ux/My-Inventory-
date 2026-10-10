@@ -119,9 +119,9 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
       .sort((a, b) => (a.distanceKm ?? 99999) - (b.distanceKm ?? 99999))
   }, [locations, currentShop, currentProfile, currentCoords])
 
-  // Filter nearby shops within the selected radius
+  // Filter nearby shops within the selected radius (or all if radiusKm === 0)
   const nearbyShops = useMemo(() => {
-    return parsedShops.filter((s) => s.isCurrent || (s.distanceKm != null && s.distanceKm <= radiusKm))
+    return parsedShops.filter((s) => s.isCurrent || radiusKm === 0 || (s.distanceKm != null && s.distanceKm <= radiusKm))
   }, [parsedShops, radiusKm])
 
   const otherShopsInRadius = useMemo(() => {
@@ -173,18 +173,20 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
     if (meshLinesLayerRef.current) meshLinesLayerRef.current.clearLayers()
     if (markersLayerRef.current) markersLayerRef.current.clearLayers()
 
-    // 1. Draw radius circle
-    const circle = L.circle([currentCoords.lat, currentCoords.lon], {
-      radius: radiusKm * 1000, // convert km to meters
-      color: '#6366f1',
-      weight: 2,
-      dashArray: '6, 8',
-      fillColor: '#6366f1',
-      fillOpacity: 0.07,
-    })
+    // 1. Draw radius circle if a specific radius is set, or skip for all network
+    if (radiusKm > 0) {
+      const circle = L.circle([currentCoords.lat, currentCoords.lon], {
+        radius: radiusKm * 1000, // convert km to meters
+        color: '#6366f1',
+        weight: 2,
+        dashArray: '6, 8',
+        fillColor: '#6366f1',
+        fillOpacity: 0.07,
+      })
 
-    circle.bindTooltip(`${radiusKm} km Radius Area`, { permanent: false, direction: 'top' })
-    circle.addTo(circleLayerRef.current)
+      circle.bindTooltip(`${radiusKm} km Radius Area`, { permanent: false, direction: 'top' })
+      circle.addTo(circleLayerRef.current)
+    }
 
     // 2. Add Current Shop Marker (glowing indigo beacon)
     const currentShopHtml = `
@@ -222,14 +224,20 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
     `)
     curMarker.addTo(markersLayerRef.current)
 
-    // 3. Precalculate plotted coordinates for partner shops within radius
+    // 3. Precalculate plotted coordinates for partner shops within radius, offsetting identical coordinates
     const plottedPartners = otherShopsInRadius.map((shop, index) => {
       let plotLat = shop.lat
       let plotLon = shop.lon
-      if (Math.abs(shop.lat - currentCoords.lat) < 0.0003 && Math.abs(shop.lon - currentCoords.lon) < 0.0003) {
+      // Check if coordinates overlap with current shop or any earlier plotted partner
+      const overlapsCurrent = Math.abs(shop.lat - currentCoords.lat) < 0.0008 && Math.abs(shop.lon - currentCoords.lon) < 0.0008
+      const overlapsPartner = otherShopsInRadius.slice(0, index).some(
+        (prev) => Math.abs(shop.lat - prev.lat) < 0.0008 && Math.abs(shop.lon - prev.lon) < 0.0008
+      )
+
+      if (overlapsCurrent || overlapsPartner) {
         const angle = ((index + 1) * 2 * Math.PI) / (otherShopsInRadius.length + 1)
-        plotLat += Math.cos(angle) * 0.0018 // ~150 meters offset so pins don't overlap
-        plotLon += Math.sin(angle) * 0.0018
+        plotLat += Math.cos(angle) * 0.0025 // ~200m offset so all distinct shop pins are cleanly visible
+        plotLon += Math.sin(angle) * 0.0025
       }
       return {
         ...shop,
@@ -237,6 +245,12 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
         plotLon,
       }
     })
+
+    // Auto-fit bounds if viewing all network or when shops are outside default zoom
+    if (radiusKm === 0 && plottedPartners.length > 0) {
+      const allPoints = [[currentCoords.lat, currentCoords.lon], ...plottedPartners.map((p) => [p.plotLat, p.plotLon])]
+      map.fitBounds(allPoints, { padding: [40, 40], maxZoom: 14 })
+    }
 
     // 4. Draw Mesh Network Lines: lightly visible lines interconnecting partner shops
     const centerNode = {
@@ -371,14 +385,20 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
         {/* Radius Pills */}
         <div className="row" style={{ gap: 4 }}>
           <span className="faint" style={{ fontSize: 12, marginRight: 2 }}>Radius:</span>
-          {[5, 10, 15, 20].map((r) => (
+          {[
+            { label: '5 km', val: 5 },
+            { label: '10 km', val: 10 },
+            { label: '25 km', val: 25 },
+            { label: '50 km', val: 50 },
+            { label: 'All Shops', val: 0 },
+          ].map((r) => (
             <button
-              key={r}
-              className={`btn sm ${radiusKm === r ? 'primary' : ''}`}
+              key={r.val}
+              className={`btn sm ${radiusKm === r.val ? 'primary' : ''}`}
               style={{ padding: '2px 8px', fontSize: 11.5, minWidth: 38 }}
-              onClick={() => setRadiusKm(r)}
+              onClick={() => setRadiusKm(r.val)}
             >
-              {r} km
+              {r.label}
             </button>
           ))}
         </div>
