@@ -38,7 +38,7 @@ export default function Sidebar({ role, open, collapsed, onClose }) {
             { to: '/cashier/inventory', label: 'Inventory Lookup', Icon: IconBox },
             { to: '/cashier/scan', label: 'Scan & Add', Icon: IconScan },
             { to: '/cashier/expiring', label: 'Near Expiry', Icon: IconClock },
-            { to: '/cashier/emergency', label: 'Emergency Stock', Icon: IconEmergency },
+            { to: '/cashier/emergency', label: 'Emergency Requirement', Icon: IconEmergency },
             { to: '/cashier/returns', label: 'Returns', Icon: IconReturn },
             { to: '/cashier/analysis', label: 'Sales Analysis', Icon: IconChart },
           ],

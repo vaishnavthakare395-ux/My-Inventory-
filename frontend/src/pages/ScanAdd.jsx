@@ -154,7 +154,7 @@ export default function ScanAdd() {
     }
   }
 
-  // Pricing Calculations & 60% Rule Validation
+  // Pricing Calculations & 75% Rule Validation
   const bp = parseFloat(form.buyingPrice) || 0
   const sp = parseFloat(form.sellingPrice) || 0
   const ep = parseFloat(form.emergencyPrice) || 0
@@ -162,12 +162,12 @@ export default function ScanAdd() {
 
   const normalProfit = sp > bp ? sp - bp : 0
   const emergencyProfit = ep > bp ? ep - bp : 0
-  const maxEmergencyProfitAllowed = normalProfit > 0 ? 0.60 * normalProfit : 0
+  const maxEmergencyProfitAllowed = normalProfit > 0 ? 0.75 * normalProfit : 0
   const maxEmergencyPriceAllowed = normalProfit > 0 ? bp + maxEmergencyProfitAllowed : bp
 
   const hasAllPrices = bp > 0 && sp > 0 && ep > 0
   const isSpValid = sp > bp
-  // Profit made by emergency price must be STRICTLY LESS than 60% of profit by selling price
+  // Profit made by emergency price must be STRICTLY LESS than 75% of profit by selling price
   const isEmergencyProfitValid = hasAllPrices && isSpValid && ep >= bp && emergencyProfit < maxEmergencyProfitAllowed
   const isEmergencyProfitExceeded = hasAllPrices && isSpValid && emergencyProfit >= maxEmergencyProfitAllowed
 
@@ -180,17 +180,17 @@ export default function ScanAdd() {
     if (!(Number(form.qty) > 0)) return toast.err('Quantity must be greater than zero in Step 2.')
 
     // Pricing validation
-    if (!bp || bp <= 0) return toast.err('Please enter a valid Buying Price (Cost Price) in Step 3.')
-    if (!sp || sp <= bp) return toast.err('Selling Price must be greater than Buying Price.')
+    if (!bp || bp <= 0) return toast.err('Please enter a valid Buying Price (Cost Price) in Question 1.')
+    if (!sp || sp <= bp) return toast.err('Selling Price (Question 2) must be greater than Buying Price.')
 
     let finalEp = ep
     if (!finalEp && sp > bp) {
-      finalEp = Number((bp + (normalProfit * 0.45)).toFixed(2))
+      finalEp = Number((bp + (normalProfit * 0.50)).toFixed(2))
     }
-    if (finalEp < bp) return toast.err('Emergency Price cannot be lower than Buying Price.')
+    if (finalEp < bp) return toast.err('Emergency Price (Question 3) cannot be lower than Buying Price.')
     const currEmergencyProfit = finalEp - bp
     if (currEmergencyProfit >= maxEmergencyProfitAllowed && maxEmergencyProfitAllowed > 0) {
-      return toast.err(`Emergency profit (₹${currEmergencyProfit.toFixed(2)}) must be less than 60% of selling profit (₹${maxEmergencyProfitAllowed.toFixed(2)}). Maximum allowed is ₹${(maxEmergencyPriceAllowed - 0.01).toFixed(2)}.`)
+      return toast.err(`Emergency profit (₹${currEmergencyProfit.toFixed(2)}) must be strictly less than 75% of selling profit (₹${maxEmergencyProfitAllowed.toFixed(2)}). Maximum allowed is ₹${(maxEmergencyPriceAllowed - 0.01).toFixed(2)}.`)
     }
 
     const batchNo = form.batchNo.trim() || (form.expiryDate ? `EXP-${form.expiryDate.slice(0, 7)}` : 'DEFAULT')
@@ -355,38 +355,23 @@ export default function ScanAdd() {
           </div>
         </div>
 
-        {/* Step 3: Mandatory Pricing with 60% Profit Cap */}
+        {/* Step 3: Mandatory Pricing Questions with 75% Profit Cap */}
         <div className="card" style={{ display: 'flex', flexDirection: 'column' }}>
           <div className="row spread">
-            <h3 style={{ margin: 0 }}><span className="step-n">3</span> Pricing &amp; Emergency Price</h3>
-            <span className="badge purple sm">60% Cap Rule</span>
+            <h3 style={{ margin: 0 }}><span className="step-n">3</span> Mandatory Product Pricing</h3>
+            <span className="badge purple sm">75% Cap Rule</span>
+          </div>
+          <div className="faint" style={{ fontSize: 12, marginTop: 4 }}>
+            Answer the 3 mandatory pricing questions below. Profit made by emergency price must be strictly less than 75% of profit by selling price.
           </div>
 
-          <div style={{ marginTop: 12, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div style={{ marginTop: 14, display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {/* Question 1: Buying Price */}
             <div className="field">
-              <div className="row spread">
-                <label>1. MRP (Maximum Retail Price) *</label>
-                {mrp > sp && sp > 0 && (
-                  <span className="badge green sm">Discount to Customer: ₹{(mrp - sp).toFixed(2)}</span>
-                )}
-              </div>
-              <div className="row" style={{ alignItems: 'center', gap: 6 }}>
-                <span className="mono" style={{ fontSize: 14, fontWeight: 700, color: 'var(--muted)' }}>₹</span>
-                <input
-                  className="input mono"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="e.g. 200 (Printed MRP)"
-                  value={form.mrp}
-                  onChange={set('mrp')}
-                />
-              </div>
-            </div>
-
-            <div className="field">
-              <label>2. Buying Price (Cost Price) *</label>
-              <div className="row" style={{ alignItems: 'center', gap: 6 }}>
+              <label style={{ fontWeight: 600, color: 'var(--text)' }}>
+                1. Buying Price (Cost Price per unit) *
+              </label>
+              <div className="row" style={{ alignItems: 'center', gap: 6, marginTop: 3 }}>
                 <span className="mono" style={{ fontSize: 14, fontWeight: 700, color: 'var(--muted)' }}>₹</span>
                 <input
                   className="input mono"
@@ -398,16 +383,20 @@ export default function ScanAdd() {
                   onChange={set('buyingPrice')}
                 />
               </div>
+              <span className="faint" style={{ fontSize: 11 }}>Cost price paid to supplier / vendor</span>
             </div>
 
+            {/* Question 2: Selling Price */}
             <div className="field">
               <div className="row spread">
-                <label>3. Selling Price (Normal Retail) *</label>
+                <label style={{ fontWeight: 600, color: 'var(--text)' }}>
+                  2. Selling Price (Regular Retail) *
+                </label>
                 {sp > bp && bp > 0 && (
-                  <span className="badge green sm">Profit: ₹{normalProfit.toFixed(2)}</span>
+                  <span className="badge green sm">Normal Profit: ₹{normalProfit.toFixed(2)}</span>
                 )}
               </div>
-              <div className="row" style={{ alignItems: 'center', gap: 6 }}>
+              <div className="row" style={{ alignItems: 'center', gap: 6, marginTop: 3 }}>
                 <span className="mono" style={{ fontSize: 14, fontWeight: 700, color: 'var(--muted)' }}>₹</span>
                 <input
                   className="input mono"
@@ -419,24 +408,28 @@ export default function ScanAdd() {
                   onChange={set('sellingPrice')}
                 />
               </div>
+              <span className="faint" style={{ fontSize: 11 }}>Normal customer selling price at your shop counter</span>
             </div>
 
+            {/* Question 3: Emergency Price */}
             <div className="field">
               <div className="row spread" style={{ alignItems: 'center' }}>
-                <label>4. Emergency Price (Neighbor Shops) *</label>
+                <label style={{ fontWeight: 600, color: 'var(--text)' }}>
+                  3. Emergency Price (For Associated Partner Shops) *
+                </label>
                 {maxEmergencyProfitAllowed > 0 && (
                   <button
                     type="button"
                     className="btn ghost sm"
                     style={{ fontSize: 11, padding: '2px 8px', borderColor: 'var(--border)' }}
                     onClick={() => setForm((prev) => ({ ...prev, emergencyPrice: (maxEmergencyPriceAllowed - 0.01).toFixed(2) }))}
-                    title="Auto-fill with maximum price allowed under the 60% profit rule"
+                    title="Auto-fill with maximum price allowed under the 75% profit cap rule"
                   >
                     ⚡ Set Max: ₹{(maxEmergencyPriceAllowed - 0.01).toFixed(2)}
                   </button>
                 )}
               </div>
-              <div className="row" style={{ alignItems: 'center', gap: 6 }}>
+              <div className="row" style={{ alignItems: 'center', gap: 6, marginTop: 3 }}>
                 <span className="mono" style={{ fontSize: 14, fontWeight: 700, color: 'var(--muted)' }}>₹</span>
                 <input
                   className="input mono"
@@ -448,6 +441,31 @@ export default function ScanAdd() {
                   value={form.emergencyPrice}
                   onChange={set('emergencyPrice')}
                   style={isEmergencyProfitExceeded ? { borderColor: '#ef4444', background: 'rgba(239, 68, 68, 0.08)' } : {}}
+                />
+              </div>
+              <span className="faint" style={{ fontSize: 11 }}>
+                Discounted price when another associated shop buys this item in emergency
+              </span>
+            </div>
+
+            {/* Optional MRP */}
+            <div className="field">
+              <div className="row spread">
+                <label>Printed MRP (Maximum Retail Price on Package)</label>
+                {mrp > sp && sp > 0 && (
+                  <span className="badge green sm">Discount to Customer: ₹{(mrp - sp).toFixed(2)}</span>
+                )}
+              </div>
+              <div className="row" style={{ alignItems: 'center', gap: 6, marginTop: 3 }}>
+                <span className="mono" style={{ fontSize: 14, fontWeight: 700, color: 'var(--muted)' }}>₹</span>
+                <input
+                  className="input mono"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="e.g. 200 (Printed MRP)"
+                  value={form.mrp}
+                  onChange={set('mrp')}
                 />
               </div>
             </div>
@@ -478,18 +496,18 @@ export default function ScanAdd() {
                 {isEmergencyProfitExceeded ? (
                   <div>
                     <div style={{ fontWeight: 700, marginBottom: 4 }}>
-                      ⚠️ 60% Profit Rule Exceeded:
+                      ⚠️ 75% Profit Rule Exceeded:
                     </div>
                     <div>
                       • Normal Profit: <b>₹{normalProfit.toFixed(2)}</b> (₹{sp} - ₹{bp})<br />
-                      • 60% Profit Cap: <b>₹{maxEmergencyProfitAllowed.toFixed(2)}</b><br />
+                      • 75% Profit Cap: <b>₹{maxEmergencyProfitAllowed.toFixed(2)}</b><br />
                       • Your Emergency Profit: <b>₹{emergencyProfit.toFixed(2)}</b> ({((emergencyProfit / normalProfit) * 100).toFixed(1)}% of normal profit)<br />
-                      Emergency profit must be <b>strictly less than 60%</b>. Maximum allowed emergency price is <b>₹{(maxEmergencyPriceAllowed - 0.01).toFixed(2)}</b>.
+                      Emergency profit must be <b>strictly less than 75%</b>. Maximum allowed emergency price is <b>₹{(maxEmergencyPriceAllowed - 0.01).toFixed(2)}</b>.
                     </div>
                   </div>
                 ) : isEmergencyProfitValid ? (
                   <div>
-                    ✓ <b>Rule Satisfied:</b> Emergency profit is <b>₹{emergencyProfit.toFixed(2)}</b> ({((emergencyProfit / normalProfit) * 100).toFixed(1)}% of normal profit ₹{normalProfit.toFixed(2)}), which is strictly under the 60% cap (₹{maxEmergencyProfitAllowed.toFixed(2)}).
+                    ✓ <b>75% Rule Satisfied:</b> Emergency profit is <b>₹{emergencyProfit.toFixed(2)}</b> ({((emergencyProfit / normalProfit) * 100).toFixed(1)}% of normal profit ₹{normalProfit.toFixed(2)}), which is strictly under the 75% cap (₹{maxEmergencyProfitAllowed.toFixed(2)}).
                   </div>
                 ) : sp <= bp ? (
                   <div style={{ color: '#f59e0b' }}>

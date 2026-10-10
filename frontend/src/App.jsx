@@ -63,10 +63,14 @@ const ROUTES = [
   { path: '/cashier/inventory', title: 'Inventory Lookup', allow: [ROLES.USER], El: Inventory },
   { path: '/cashier/scan', title: 'Scan & Add', allow: [ROLES.USER], El: ScanAdd },
   { path: '/cashier/expiring', title: 'Near Expiry', allow: [ROLES.USER], El: NearExpiry },
-  { path: '/cashier/emergency', title: 'Emergency Stock', allow: [ROLES.USER], El: EmergencyRequirement },
+  { path: '/cashier/emergency', title: 'Emergency Requirement', allow: [ROLES.USER], El: EmergencyRequirement },
   { path: '/cashier/returns', title: 'Returns', allow: [ROLES.USER], El: Returns },
   { path: '/cashier/analysis', title: 'Sales Analysis', allow: [ROLES.USER], El: SalesAnalysis },
   { path: '/cashier/settings', title: 'Settings', allow: [ROLES.USER], El: Settings },
+
+  // Direct Shortcuts
+  { path: '/emergency', title: 'Emergency Requirement', allow: ALL, El: EmergencyRequirement },
+  { path: '/emergency-requirement', title: 'Emergency Requirement', allow: ALL, El: EmergencyRequirement },
 ]
 
 export default function App() {
