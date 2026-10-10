@@ -219,6 +219,10 @@ export default function ScanAdd() {
         buyingPrice: bp,
         sellingPrice: sp,
         emergencyPrice: finalEp,
+        productName: form.productName || knownProduct?.productName,
+        category: form.category || knownProduct?.category,
+        unit: form.unit || knownProduct?.unit,
+        barcode: code,
       })
 
       setLastSaved({

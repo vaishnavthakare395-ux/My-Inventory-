@@ -29,15 +29,33 @@ export function AuthProvider({ children }) {
       setUser(fbUser)
       try {
         if (fbUser) {
-          let [p, locs] = await Promise.all([getUser(fbUser.uid), listLocations()])
+          let [p, locs] = await Promise.all([getUser(fbUser.uid, fbUser.email), listLocations()])
           if (!p) {
-            // Auto-provision user profile on first Google sign-in
+            // Auto-provision user profile on first sign-in
             const emailLower = (fbUser.email || '').toLowerCase()
             const initialRole = emailLower.includes('admin')
               ? ROLES.ADMIN
               : emailLower.includes('cashier')
               ? ROLES.USER
               : ROLES.MANAGER
+
+            let shopName = ''
+            let shopLocationId = ''
+            let assignedLocationIds = []
+
+            if (emailLower.includes('omi') || emailLower.includes('vaishnav')) {
+              shopName = 'v mart'
+              shopLocationId = 'SHOP_V_MART'
+              assignedLocationIds = ['SHOP_V_MART']
+            } else if (emailLower.includes('ayush') || emailLower.includes('wizardo')) {
+              shopName = 'global mart'
+              shopLocationId = 'SHOP_GLOBAL_MART'
+              assignedLocationIds = ['SHOP_GLOBAL_MART']
+            } else if (emailLower.includes('patel') || emailLower.includes('raju')) {
+              shopName = 'i mart'
+              shopLocationId = 'SHOP_I_MART'
+              assignedLocationIds = ['SHOP_I_MART']
+            }
 
             const newProfile = {
               id: fbUser.uid,
@@ -47,11 +65,14 @@ export function AuthProvider({ children }) {
               photoURL: fbUser.photoURL || '',
               role: initialRole,
               status: 'active',
+              shopName,
+              shopLocationId,
+              assignedLocationIds,
               createdAt: serverTimestamp(),
               updatedAt: serverTimestamp(),
             }
             try {
-              await setDoc(doc(db, 'users', fbUser.uid), newProfile)
+              await setDoc(doc(db, 'users', fbUser.uid), newProfile, { merge: true })
               p = newProfile
             } catch (createErr) {
               console.warn('Could not auto-provision user doc in Firestore:', createErr)
@@ -129,11 +150,23 @@ export function AuthProvider({ children }) {
   const changePassword = (newPassword) => updatePassword(auth.currentUser, newPassword)
 
   const role = profile?.role
-  // Admins and managers work across every location; plain users are limited to
-  // the warehouses assigned to them (matches firestore.rules canAccessLocation).
-  const allAccess = role === ROLES.ADMIN || role === ROLES.MANAGER
-  const myLocationIds = allAccess ? locations.map((l) => l.id) : profile?.assignedLocationIds || []
-  const myLocations = locations.filter((l) => myLocationIds.includes(l.id))
+  const userShopId = profile?.shopLocationId || (profile?.assignedLocationIds && profile.assignedLocationIds[0])
+  const allAccess = role === ROLES.ADMIN || (!userShopId && !(profile?.assignedLocationIds?.length))
+  const myLocationIds = allAccess
+    ? locations.map((l) => l.id)
+    : profile?.assignedLocationIds?.length
+    ? profile.assignedLocationIds
+    : userShopId
+    ? [userShopId]
+    : locations.map((l) => l.id)
+  let myLocations = locations.filter((l) => myLocationIds.includes(l.id))
+  if (!myLocations.length && userShopId) {
+    const fallbackLoc = locations.find((l) => l.id === userShopId)
+    if (fallbackLoc) myLocations = [fallbackLoc]
+  }
+  if (!myLocations.length && locations.length) {
+    myLocations = locations
+  }
 
   const value = {
     user,

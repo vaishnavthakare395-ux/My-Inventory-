@@ -8,29 +8,44 @@ const STORE_KEY = 'sf.activeLocation'
 // Holds the warehouse the user is currently working in. Defaults to their first
 // assigned location and is remembered across reloads.
 export function WorkspaceProvider({ children }) {
-  const { myLocations } = useAuth()
+  const { user, profile, myLocations, locations } = useAuth()
+  const userShopId = profile?.shopLocationId || profile?.assignedLocationIds?.[0]
+  const userKey = user?.uid ? `${STORE_KEY}_${user.uid}` : STORE_KEY
+
   const [activeLocationId, setActiveLocationId] = useState(
-    () => localStorage.getItem(STORE_KEY) || ''
+    () => localStorage.getItem(userKey) || userShopId || ''
   )
 
   useEffect(() => {
+    // If the user has a specific assigned shop, ensure their active location defaults to their shop
+    if (userShopId && (myLocations.some((l) => l.id === userShopId) || locations.some((l) => l.id === userShopId))) {
+      const stored = localStorage.getItem(userKey)
+      if (!stored || !myLocations.some((l) => l.id === stored)) {
+        setActiveLocationId(userShopId)
+        localStorage.setItem(userKey, userShopId)
+        return
+      }
+    }
+
     if (!myLocations.length) return
     const stillValid = myLocations.some((l) => l.id === activeLocationId)
     if (!stillValid) {
-      const next = myLocations[0].id
+      const next = userShopId && myLocations.some((l) => l.id === userShopId)
+        ? userShopId
+        : myLocations[0].id
       setActiveLocationId(next)
-      localStorage.setItem(STORE_KEY, next)
+      localStorage.setItem(userKey, next)
     }
-  }, [myLocations, activeLocationId])
+  }, [myLocations, activeLocationId, userShopId, userKey, locations])
 
   const setActive = (id) => {
     setActiveLocationId(id)
-    localStorage.setItem(STORE_KEY, id)
+    localStorage.setItem(userKey, id)
   }
 
   const activeLocation = useMemo(
-    () => myLocations.find((l) => l.id === activeLocationId) || null,
-    [myLocations, activeLocationId]
+    () => myLocations.find((l) => l.id === activeLocationId) || locations.find((l) => l.id === activeLocationId) || null,
+    [myLocations, locations, activeLocationId]
   )
 
   return (

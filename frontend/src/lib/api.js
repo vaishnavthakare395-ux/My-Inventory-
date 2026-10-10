@@ -126,7 +126,7 @@ export async function listLocations() {
     const isAdminRegistered = isExplicitAdminReg || isTargetShop || isShopPrefixed || (u && u.role !== 'admin')
     return isAdminRegistered && (l.ownerEmail || l.mapVerified || l.ownerName)
   })
-  return rows.map((l) => {
+  const mappedRows = rows.map((l) => {
     const u =
       (l.ownerEmail ? userByEmail[l.ownerEmail.toLowerCase()] : null) ||
       (l.ownerId ? userById[l.ownerId] : null) ||
@@ -169,7 +169,7 @@ export async function listLocations() {
     if (!data.shopName) continue
 
     const locId = data.shopLocationId || (data.assignedLocationIds && data.assignedLocationIds[0]) || `SHOP_${doc.id}`
-    const alreadyExists = rows.some(
+    const alreadyExists = mappedRows.some(
       (r) =>
         r.id === locId ||
         (r.ownerEmail && r.ownerEmail.toLowerCase() === email) ||
@@ -177,7 +177,7 @@ export async function listLocations() {
     )
 
     if (!alreadyExists) {
-      rows.push({
+      mappedRows.push({
         id: locId,
         code: `SHOP-${locId.slice(-4)}`,
         name: data.shopName,
@@ -199,7 +199,7 @@ export async function listLocations() {
     }
   }
 
-  return rows
+  return mappedRows
 }
 
 export async function saveLocation(location) {
@@ -368,9 +368,63 @@ export async function saveShippingAnswers(answers) {
 
 /* ---------------- users ---------------- */
 
-export async function getUser(uid) {
-  const snap = await getDoc(doc(db, 'users', uid))
-  return snap.exists() ? { id: snap.id, ...snap.data() } : null
+export async function getUser(uid, email) {
+  if (!uid && !email) return null
+  if (uid) {
+    const snap = await getDoc(doc(db, 'users', uid))
+    if (snap.exists()) return { id: snap.id, ...snap.data() }
+  }
+
+  const cleanEmail = (email || '').toLowerCase().trim()
+  const snapAll = await getDocs(col('users')).catch(() => ({ docs: [] }))
+  for (const d of snapAll.docs || []) {
+    const data = d.data()
+    const docEmail = (data.email || '').toLowerCase().trim()
+    const docId = d.id
+
+    if (uid && (data.uid === uid || docId === uid)) {
+      return { id: docId, ...data }
+    }
+
+    if (cleanEmail && docEmail && docEmail === cleanEmail) {
+      if (uid && uid !== docId) {
+        setDoc(doc(db, 'users', uid), { ...data, uid, id: uid }, { merge: true }).catch(() => {})
+      }
+      return { id: docId, ...data }
+    }
+
+    // Match omi account alias (omiii / v mart)
+    const isOmi = cleanEmail.includes('omi') || cleanEmail.includes('vaishnavthakare395')
+    const isDocOmi = docId === 'USER_V_MART' || (data.name && data.name.toLowerCase().includes('omi')) || docEmail.includes('omi') || docEmail.includes('vaishnavthakare395')
+    if (isOmi && isDocOmi) {
+      if (uid && uid !== docId) {
+        setDoc(doc(db, 'users', uid), { ...data, uid, id: uid, email: cleanEmail || docEmail }, { merge: true }).catch(() => {})
+      }
+      return { id: docId, ...data }
+    }
+
+    // Match ayush account alias (ayush / global mart)
+    const isAyush = cleanEmail.includes('ayush') || cleanEmail.includes('wizardo')
+    const isDocAyush = docId === 'USER_GLOBAL_MART' || (data.name && data.name.toLowerCase().includes('ayush')) || docEmail.includes('wizardo')
+    if (isAyush && isDocAyush) {
+      if (uid && uid !== docId) {
+        setDoc(doc(db, 'users', uid), { ...data, uid, id: uid, email: cleanEmail || docEmail }, { merge: true }).catch(() => {})
+      }
+      return { id: docId, ...data }
+    }
+
+    // Match patel account alias (raju / i mart)
+    const isPatel = cleanEmail.includes('patel') || cleanEmail.includes('raju')
+    const isDocPatel = docId === 'USER_I_MART' || (data.name && data.name.toLowerCase().includes('raju')) || docEmail.includes('patel')
+    if (isPatel && isDocPatel) {
+      if (uid && uid !== docId) {
+        setDoc(doc(db, 'users', uid), { ...data, uid, id: uid, email: cleanEmail || docEmail }, { merge: true }).catch(() => {})
+      }
+      return { id: docId, ...data }
+    }
+  }
+
+  return null
 }
 
 export async function listUsers() {
@@ -638,7 +692,7 @@ export async function batchesForSkuAtLocations(sku, locationIds = []) {
 
 // Adds stock for a stock group and records the movement. Increments if the
 // group already exists at that location.
-export async function addStock({ sku, locationId, batchNo, qty, expiryDate, by, buyingPrice, sellingPrice, emergencyPrice, mrp }) {
+export async function addStock({ sku, locationId, batchNo, qty, expiryDate, by, buyingPrice, sellingPrice, emergencyPrice, mrp, productName, category, unit, barcode }) {
   qty = positiveQty(qty)
   if (!sku || !locationId || !batchNo) throw new Error('sku, location and stock group are required')
 
@@ -663,11 +717,19 @@ export async function addStock({ sku, locationId, batchNo, qty, expiryDate, by, 
     const existing = await tx.get(ref)
     if (existing.exists()) {
       newQty = (existing.data().qty || 0) + qty
-      const updateData = { qty: increment(qty), expiryDate, updatedAt: serverTimestamp() }
+      const updateData = { qty: increment(qty), expiryDate, updatedAt: serverTimestamp(), isEmergencyAvailable: true }
       if (bPrice) updateData.buyingPrice = bPrice
       if (sPrice) updateData.sellingPrice = sPrice
       if (ePrice) updateData.emergencyPrice = ePrice
       if (mPrice) updateData.mrp = mPrice
+      if (by) {
+        updateData.by = by
+        updateData.ownerEmail = by
+      }
+      if (productName) updateData.productName = productName
+      if (category) updateData.category = category
+      if (unit) updateData.unit = unit
+      if (barcode) updateData.barcode = barcode
       tx.update(ref, updateData)
     } else {
       tx.set(ref, {
@@ -680,6 +742,13 @@ export async function addStock({ sku, locationId, batchNo, qty, expiryDate, by, 
         buyingPrice: bPrice,
         sellingPrice: sPrice,
         emergencyPrice: ePrice,
+        by: by || '',
+        ownerEmail: by || '',
+        isEmergencyAvailable: true,
+        productName: productName || '',
+        category: category || '',
+        unit: unit || '',
+        barcode: barcode || '',
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       })
@@ -1343,22 +1412,45 @@ export async function searchEmergencyStock({ queryText = '', userLocationId }) {
     const allLocations = await listLocations()
     const locMap = Object.fromEntries(allLocations.map((l) => [l.id, l]))
 
+    // 2. Fetch all user records to resolve shops, emails, and phone numbers
+    const usersSnap = await getDocs(col('users')).catch(() => ({ docs: [] }))
+    const userShopMap = {}
+    for (const d of usersSnap.docs || []) {
+      const u = d.data()
+      if (u.shopLocationId) userShopMap[u.shopLocationId] = u
+      if (u.email) userShopMap[u.email.toLowerCase()] = u
+      if (d.id) userShopMap[d.id] = u
+      if (u.uid) userShopMap[u.uid] = u
+    }
+
     const currentEmail = (auth.currentUser.email || '').toLowerCase()
+    const currentUid = auth.currentUser.uid
+    const currentUserProfile = userShopMap[currentUid] || userShopMap[currentEmail]
+    const effectiveUserLocId = userLocationId || currentUserProfile?.shopLocationId || currentUserProfile?.assignedLocationIds?.[0] || ''
+
     const otherLocations = allLocations.filter(
-      (l) => l.id !== userLocationId && (!l.ownerEmail || l.ownerEmail.toLowerCase() !== currentEmail)
+      (l) => l.id !== effectiveUserLocId && (!l.ownerEmail || l.ownerEmail.toLowerCase() !== currentEmail)
     )
 
-    // 2. Fetch all active batches across network
-    const snap = await getDocs(query(col('batch_inventory'), where('qty', '>', 0)))
+    // 3. Fetch all active batches across network
+    const snap = await getDocs(col('batch_inventory'))
     const allBatches = snapToRows(snap)
 
-    let otherBatches = allBatches.filter((b) => b.locationId !== userLocationId && b.qty > 0)
+    const isOwnBatch = (b) => {
+      if (effectiveUserLocId && b.locationId === effectiveUserLocId) return true
+      if (b.ownerEmail && b.ownerEmail.toLowerCase() === currentEmail) return true
+      if (b.by && b.by.toLowerCase() === currentEmail) return true
+      if (b.createdBy && (b.createdBy === currentUid || b.createdBy.toLowerCase() === currentEmail)) return true
+      return false
+    }
 
-    // 3. If no batches exist for other partner shops, seed them so partner stock is immediately available
+    let otherBatches = allBatches.filter((b) => Number(b.qty) > 0 && !isOwnBatch(b))
+
+    // 4. If no batches exist for other partner shops, seed sample batches
     if (!otherBatches.length && otherLocations.length > 0) {
       try {
         const seeded = await seedPartnerEmergencyStock(otherLocations)
-        otherBatches = seeded.filter((b) => b.locationId !== userLocationId && b.qty > 0)
+        otherBatches = seeded.filter((b) => Number(b.qty) > 0 && !isOwnBatch(b))
       } catch (seedErr) {
         console.warn('Could not auto-seed partner emergency stock:', seedErr)
       }
@@ -1366,27 +1458,47 @@ export async function searchEmergencyStock({ queryText = '', userLocationId }) {
 
     if (!otherBatches.length) return []
 
-    // 4. Fetch products metadata
+    // 5. Fetch products metadata
     const skus = [...new Set(otherBatches.map((b) => b.sku))]
     const products = await getProductsBySkus(skus)
     const productMap = Object.fromEntries(products.map((p) => [p.sku, p]))
 
-    // 5. Enrich and filter
+    // 6. Enrich and filter
     const results = []
     for (const b of otherBatches) {
-      const loc = locMap[b.locationId] || otherLocations.find((l) => l.id === b.locationId)
-      if (!loc) continue
+      let loc =
+        locMap[b.locationId] ||
+        allLocations.find((l) => l.id === b.locationId) ||
+        userShopMap[b.locationId] ||
+        (b.by ? userShopMap[b.by.toLowerCase()] : null) ||
+        (b.ownerEmail ? userShopMap[b.ownerEmail.toLowerCase()] : null)
+
+      if (!loc) {
+        const isVmart = String(b.locationId).includes('V_MART') || String(b.by).includes('omi') || String(b.ownerEmail).includes('omi') || String(b.by).includes('vaishnav')
+        const isGlobalMart = String(b.locationId).includes('GLOBAL_MART') || String(b.by).includes('ayush') || String(b.ownerEmail).includes('wizardo')
+        loc = {
+          id: b.locationId,
+          name: isVmart ? 'v mart' : isGlobalMart ? 'global mart' : (b.shopName || 'Partner Shop'),
+          address: isVmart ? 'Sant Dyaneshwar Marg, Vishrantwadi, Khadki, Pune, Maharashtra, 411031' : 'Partner Network',
+          phone: isVmart ? '9877193796' : (b.phone || ''),
+          ownerPhone: isVmart ? '9877193796' : (b.phone || ''),
+          shopType: 'mart',
+          coordinates: isVmart ? { lat: 18.6150, lon: 73.8760 } : null,
+        }
+      }
 
       const prod = productMap[b.sku] || {}
+      const productName = b.productName || prod.productName || b.sku
+      const category = b.category || prod.category || 'General'
 
       if (cleanQ) {
-        const haystack = `${b.sku} ${prod.productName || ''} ${prod.category || ''} ${prod.brand || ''} ${b.batchNo || ''} ${loc.name || ''}`.toLowerCase()
+        const haystack = `${b.sku} ${productName} ${category} ${prod.brand || ''} ${b.batchNo || ''} ${loc.name || ''} ${loc.shopName || ''}`.toLowerCase()
         if (!haystack.includes(cleanQ)) continue
       }
 
-      const buyingPrice = b.buyingPrice || prod.buyingPrice || 0
-      const sellingPrice = b.sellingPrice || prod.sellingPrice || 0
-      let emergencyPrice = b.emergencyPrice || prod.emergencyPrice || 0
+      const buyingPrice = Number(b.buyingPrice) || Number(prod.buyingPrice) || 0
+      const sellingPrice = Number(b.sellingPrice) || Number(prod.sellingPrice) || 0
+      let emergencyPrice = Number(b.emergencyPrice) || Number(prod.emergencyPrice) || 0
       if (!emergencyPrice && sellingPrice && buyingPrice && sellingPrice > buyingPrice) {
         const normalProfit = sellingPrice - buyingPrice
         emergencyPrice = Math.floor((buyingPrice + normalProfit * 0.5) * 100) / 100
@@ -1397,21 +1509,21 @@ export async function searchEmergencyStock({ queryText = '', userLocationId }) {
         batchId: b.id,
         sku: b.sku,
         batchNo: b.batchNo,
-        qty: b.qty,
+        qty: Number(b.qty) || 0,
         expiryDate: b.expiryDate,
         buyingPrice,
         sellingPrice,
         emergencyPrice: emergencyPrice || sellingPrice,
-        productName: prod.productName || b.sku,
-        category: prod.category || 'General',
-        unit: prod.unit || 'units',
-        barcode: prod.barcode || '',
+        productName,
+        category,
+        unit: b.unit || prod.unit || 'units',
+        barcode: b.barcode || prod.barcode || '',
         sellerLocationId: b.locationId,
-        sellerShopName: loc.name || 'Partner Shop',
+        sellerShopName: loc.shopName || loc.name || 'Partner Shop',
         sellerAddress: loc.address || loc.verifiedAddress || '',
         sellerPhone: loc.phone || loc.ownerPhone || '',
         sellerCoordinates: loc.coordinates || (loc.lat && loc.lng ? { lat: loc.lat, lon: loc.lng } : null),
-        sellerShopType: loc.shopType || loc.type || 'general_store',
+        sellerShopType: loc.shopType || loc.type || 'mart',
       })
     }
 

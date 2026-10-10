@@ -118,7 +118,9 @@ export default function EmergencyRequirement() {
   }, [queryText, activeLocation?.id])
 
   useEffect(() => {
-    if (activeTab !== 'search') {
+    if (activeTab === 'search') {
+      loadSearch()
+    } else {
       loadOrders()
     }
   }, [activeTab, activeLocation?.id])
@@ -365,6 +367,17 @@ export default function EmergencyRequirement() {
                     {d.label}
                   </button>
                 ))}
+                {/* Refresh Stock Button */}
+                <button
+                  className="btn sm"
+                  onClick={loadSearch}
+                  disabled={loading}
+                  title="Refresh Emergency Network Stock"
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', fontSize: 12, fontWeight: 600, marginLeft: 6 }}
+                >
+                  <span style={{ display: 'inline-block', transform: loading ? 'rotate(180deg)' : 'none', transition: 'transform 0.3s' }}>🔄</span>
+                  {loading ? 'Refreshing…' : 'Refresh'}
+                </button>
               </div>
             </div>
           </div>
