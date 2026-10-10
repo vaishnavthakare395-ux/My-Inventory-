@@ -1404,7 +1404,17 @@ export async function seedPartnerEmergencyStock(partnerLocations = []) {
 }
 
 export async function searchEmergencyStock({ queryText = '', userLocationId }) {
-  if (!auth.currentUser) return []
+  let currentUser = auth.currentUser
+  if (!currentUser) {
+    currentUser = await new Promise((resolve) => {
+      const unsub = onAuthStateChanged(auth, (u) => {
+        unsub()
+        resolve(u)
+      })
+      setTimeout(() => resolve(auth.currentUser), 1500)
+    })
+  }
+  if (!currentUser) return []
   const cleanQ = queryText.trim().toLowerCase()
 
   try {
@@ -1423,8 +1433,8 @@ export async function searchEmergencyStock({ queryText = '', userLocationId }) {
       if (u.uid) userShopMap[u.uid] = u
     }
 
-    const currentEmail = (auth.currentUser.email || '').toLowerCase()
-    const currentUid = auth.currentUser.uid
+    const currentEmail = (currentUser.email || '').toLowerCase()
+    const currentUid = currentUser.uid
     const currentUserProfile = userShopMap[currentUid] || userShopMap[currentEmail]
     const effectiveUserLocId = userLocationId || currentUserProfile?.shopLocationId || currentUserProfile?.assignedLocationIds?.[0] || ''
 
@@ -1438,9 +1448,7 @@ export async function searchEmergencyStock({ queryText = '', userLocationId }) {
 
     const isOwnBatch = (b) => {
       if (effectiveUserLocId && b.locationId === effectiveUserLocId) return true
-      if (b.ownerEmail && b.ownerEmail.toLowerCase() === currentEmail) return true
-      if (b.by && b.by.toLowerCase() === currentEmail) return true
-      if (b.createdBy && (b.createdBy === currentUid || b.createdBy.toLowerCase() === currentEmail)) return true
+      if (currentEmail && b.ownerEmail && b.ownerEmail.toLowerCase() === currentEmail && (!b.locationId || b.locationId === effectiveUserLocId)) return true
       return false
     }
 

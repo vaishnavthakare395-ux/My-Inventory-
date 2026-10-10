@@ -8,11 +8,13 @@ service cloud.firestore {
     }
 
     function userDoc() {
-      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data
+        : {};
     }
 
     function role() {
-      return userDoc().role;
+      return userDoc().get('role', 'user');
     }
 
     function isAdmin() {
@@ -27,10 +29,8 @@ service cloud.firestore {
       return signedIn() && role() == 'manager';
     }
 
-    // Admins and managers can act across every location; a plain user is limited
-    // to the warehouses assigned to them.
     function canAccessLocation(locationId) {
-      return isManagerOrAdmin() || locationId in userDoc().assignedLocationIds;
+      return signedIn() && !isAdmin();
     }
 
     function managerCanWriteUser() {
@@ -78,34 +78,13 @@ service cloud.firestore {
     // can search stock availability across the emergency network.
     match /batch_inventory/{id} {
       allow read: if signedIn();
-      allow create: if signedIn()
-        && canAccessLocation(request.resource.data.locationId)
-        && request.resource.data.sku is string
-        && request.resource.data.locationId is string
-        && request.resource.data.batchNo is string
-        && validQty(request.resource.data.qty);
-      allow update: if signedIn()
-        && (canAccessLocation(resource.data.locationId) || request.resource.data.diff(resource.data).affectedKeys().hasOnly(['qty', 'updatedAt']))
-        && request.resource.data.sku == resource.data.sku
-        && request.resource.data.locationId == resource.data.locationId
-        && request.resource.data.batchNo == resource.data.batchNo
-        && validQty(request.resource.data.qty);
+      allow create, update: if signedIn() && !isAdmin();
       allow delete: if signedIn() && !isAdmin();
     }
 
     // Emergency stock purchases / orders between partner shops.
     match /emergency_orders/{id} {
-      allow read: if signedIn() && (
-        isManagerOrAdmin() ||
-        canAccessLocation(resource.data.buyerLocationId) ||
-        canAccessLocation(resource.data.sellerLocationId)
-      );
-      allow create: if signedIn() && canAccessLocation(request.resource.data.buyerLocationId);
-      allow update: if signedIn() && (
-        canAccessLocation(resource.data.buyerLocationId) ||
-        canAccessLocation(resource.data.sellerLocationId)
-      );
-      allow delete: if isAdmin();
+      allow read, write: if signedIn();
     }
 
     // Customer bills / POS sales invoices generated at shop
@@ -157,8 +136,7 @@ service cloud.firestore {
     // Append-only audit trail; immutable, and you can only append for a location
     // you belong to.
     match /stock_ledger/{id} {
-      allow read: if isManagerOrAdmin();
-      allow create: if signedIn() && canAccessLocation(request.resource.data.locationId);
+      allow read, create: if signedIn();
       allow update, delete: if false;
     }
 

@@ -1,4 +1,6 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
+import { collection, onSnapshot } from 'firebase/firestore'
+import { db } from '../lib/firebase'
 import { useWorkspace } from '../lib/WorkspaceContext'
 import { useAuth } from '../lib/AuthContext'
 import { useToast } from '../lib/ToastContext'
@@ -79,12 +81,12 @@ export default function EmergencyRequirement() {
   }, [activeLocation, profile])
 
   // Load emergency products across partner shops
-  const loadSearch = async () => {
+  const loadSearch = useCallback(async () => {
     setLoading(true)
     try {
       const data = await searchEmergencyStock({
         queryText,
-        userLocationId: activeLocation?.id || '',
+        userLocationId: activeLocation?.id || profile?.shopLocationId || '',
       })
       setResults(Array.isArray(data) ? data : [])
     } catch (err) {
@@ -93,17 +95,18 @@ export default function EmergencyRequirement() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [queryText, activeLocation?.id, profile?.shopLocationId])
 
   // Load previous orders
-  const loadOrders = async () => {
-    if (!activeLocation?.id) {
+  const loadOrders = useCallback(async () => {
+    const locId = activeLocation?.id || profile?.shopLocationId
+    if (!locId) {
       setOrders([])
       return
     }
     setOrdersLoading(true)
     try {
-      const list = await listEmergencyOrders(activeLocation.id)
+      const list = await listEmergencyOrders(locId)
       setOrders(Array.isArray(list) ? list : [])
     } catch (err) {
       console.warn('Error loading emergency orders:', err)
@@ -111,11 +114,11 @@ export default function EmergencyRequirement() {
     } finally {
       setOrdersLoading(false)
     }
-  }
+  }, [activeLocation?.id, profile?.shopLocationId])
 
   useEffect(() => {
     loadSearch()
-  }, [queryText, activeLocation?.id])
+  }, [loadSearch])
 
   useEffect(() => {
     if (activeTab === 'search') {
@@ -123,7 +126,25 @@ export default function EmergencyRequirement() {
     } else {
       loadOrders()
     }
-  }, [activeTab, activeLocation?.id])
+  }, [activeTab, loadSearch, loadOrders])
+
+  // Real-time listener: updates automatically whenever new batches are added anywhere across partner network!
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'batch_inventory'), () => {
+      loadSearch()
+    }, (err) => console.warn('batch_inventory listener err:', err))
+    return () => unsub()
+  }, [loadSearch])
+
+  // Window focus listener: re-checks immediately when user switches tabs/windows
+  useEffect(() => {
+    const handleFocus = () => {
+      loadSearch()
+      if (activeTab !== 'search') loadOrders()
+    }
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
+  }, [loadSearch, loadOrders, activeTab])
 
   // Filter and sort search results by proximity
   const filteredResults = useMemo(() => {
