@@ -105,7 +105,27 @@ export async function listLocations() {
     if (data.email) userByEmail[data.email.toLowerCase()] = data
   }
 
-  const rows = snapToRows(locSnap).filter((l) => (l.ownerEmail || l.mapVerified) && l.active !== false)
+  const rows = snapToRows(locSnap).filter((l) => {
+    if (l.active === false) return false
+    const email = (l.ownerEmail || '').toLowerCase()
+    // Exclude mock test accounts (Apex SuperMart, Golden Crust Bakery, etc.)
+    if (email.endsWith('@stockflow.dev') || email.endsWith('@stockflow.local')) return false
+
+    const u =
+      (l.ownerEmail ? userByEmail[l.ownerEmail.toLowerCase()] : null) ||
+      (l.ownerId ? userById[l.ownerId] : null) ||
+      (l.userId ? userById[l.userId] : null) ||
+      (l.createdBy ? userById[l.createdBy] : null)
+
+    const isExplicitAdminReg = l.registeredByAdmin === true || u?.registeredByAdmin === true
+    const isTargetShop =
+      ['SHOP_GLOBAL_MART', 'SHOP_V_MART', 'SHOP_I_MART'].includes(l.id) ||
+      ['global mart', 'v mart', 'i mart'].includes((l.name || '').toLowerCase().trim())
+    const isShopPrefixed = Boolean(l.id && l.id.startsWith('SHOP_') && l.registeredByAdmin !== false)
+
+    const isAdminRegistered = isExplicitAdminReg || isTargetShop || isShopPrefixed || (u && u.role !== 'admin')
+    return isAdminRegistered && (l.ownerEmail || l.mapVerified || l.ownerName)
+  })
   return rows.map((l) => {
     const u =
       (l.ownerEmail ? userByEmail[l.ownerEmail.toLowerCase()] : null) ||
@@ -134,6 +154,7 @@ export async function listLocations() {
       ownerPhone,
       phone: ownerPhone,
       shopType,
+      registeredByAdmin: true,
     }
   })
 }
@@ -156,6 +177,12 @@ export async function saveLocation(location) {
       ownerName: location.ownerName || '',
       ownerPhone: location.ownerPhone || location.phone || '',
       phone: location.phone || location.ownerPhone || '',
+      registeredByAdmin: location.registeredByAdmin !== undefined ? Boolean(location.registeredByAdmin) : true,
+      subscriptionDuration: location.subscriptionDuration || '',
+      subscriptionPlanLabel: location.subscriptionPlanLabel || '',
+      subscriptionPrice: location.subscriptionPrice || 0,
+      subscriptionStartDate: location.subscriptionStartDate || '',
+      subscriptionEndDate: location.subscriptionEndDate || '',
       active: location.active !== false,
       updatedAt: serverTimestamp(),
     },
@@ -305,7 +332,11 @@ export async function getUser(uid) {
 
 export async function listUsers() {
   const snap = await getDocs(query(col('users'), orderBy('name')))
-  return snapToRows(snap)
+  const rows = snapToRows(snap)
+  return rows.filter((u) => {
+    const email = (u.email || '').toLowerCase()
+    return !email.endsWith('@stockflow.dev') && !email.endsWith('@stockflow.local')
+  })
 }
 
 export async function saveUserProfile(uid, profile) {
@@ -385,6 +416,7 @@ export async function createStaffUser({
       subscriptionPrice: subscriptionPrice || 499,
       subscriptionStartDate: subscriptionStartDate || new Date().toISOString(),
       subscriptionEndDate: subscriptionEndDate || '',
+      registeredByAdmin: true,
       active: true,
     })
 
@@ -418,6 +450,7 @@ export async function createStaffUser({
       subscriptionPrice: subscriptionPrice || 499,
       subscriptionStartDate: subscriptionStartDate || new Date().toISOString(),
       subscriptionEndDate: subscriptionEndDate || '',
+      registeredByAdmin: true,
       createdAt: serverTimestamp(),
     })
     persistEmulatorData().catch(() => {})

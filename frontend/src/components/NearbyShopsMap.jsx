@@ -55,12 +55,23 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
     return found ? found.icon : '🏪'
   }
 
-  // Calculate distance for all locations associated with us
+  // Calculate distance for all locations associated with us (admin-registered)
   const parsedShops = useMemo(() => {
     return locations
       .filter((loc) => {
-        const isAssociated = (loc.ownerEmail || loc.mapVerified) && loc.active !== false
-        return isAssociated && extractCoords(loc) !== null
+        if (!loc || loc.active === false) return false
+        const email = (loc.ownerEmail || loc.email || '').toLowerCase()
+        // Exclude mock / demo accounts
+        if (email.endsWith('@stockflow.dev') || email.endsWith('@stockflow.local')) return false
+
+        const isExplicitAdminReg = loc.registeredByAdmin === true
+        const isTargetShop =
+          ['SHOP_GLOBAL_MART', 'SHOP_V_MART', 'SHOP_I_MART'].includes(loc.id) ||
+          ['global mart', 'v mart', 'i mart'].includes((loc.name || '').toLowerCase().trim())
+        const isShopPrefixed = Boolean(loc.id && loc.id.startsWith('SHOP_') && loc.registeredByAdmin !== false)
+
+        const isAdminRegistered = isExplicitAdminReg || isTargetShop || isShopPrefixed
+        return isAdminRegistered && extractCoords(loc) !== null
       })
       .map((loc) => {
         const coords = extractCoords(loc)
@@ -123,7 +134,7 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
 
   // Filter nearby shops within the selected radius
   const nearbyShops = useMemo(() => {
-    return parsedShops.filter((s) => s.isCurrent || (s.distanceKm != null && s.distanceKm <= radiusKm))
+    return parsedShops.filter((s) => s.isCurrent || radiusKm === 'all' || (s.distanceKm != null && s.distanceKm <= Number(radiusKm)))
   }, [parsedShops, radiusKm])
 
   const otherShopsInRadius = useMemo(() => {
@@ -350,13 +361,27 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
     }
   }
 
+  // Fit and locate all registered partner shops in view
+  const fitAllShops = () => {
+    if (!mapInstanceRef.current) return
+    const points = []
+    if (currentCoords) points.push([currentCoords.lat, currentCoords.lon])
+    parsedShops.forEach((s) => {
+      if (s.lat && s.lon) points.push([s.lat, s.lon])
+    })
+    if (points.length > 0) {
+      const bounds = L.latLngBounds(points)
+      mapInstanceRef.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 13 })
+    }
+  }
+
   return (
     <div className="nearby-map-wrap" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
       {/* Header controls & radius filter */}
       <div className="row spread wrap" style={{ gap: 8, alignItems: 'center' }}>
         <div className="row" style={{ gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           <span className="badge green sm" style={{ fontWeight: 600 }}>
-            {otherShopsInRadius.length} partner shop(s) within {radiusKm} km
+            {otherShopsInRadius.length} partner shop(s) {radiusKm === 'all' ? 'across network' : `within ${radiusKm} km`}
           </span>
           <span
             className="badge sm purple"
@@ -370,10 +395,10 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
           </span>
         </div>
 
-        {/* Radius Pills */}
-        <div className="row" style={{ gap: 4 }}>
+        {/* Radius Pills & Locate Button */}
+        <div className="row wrap" style={{ gap: 4, alignItems: 'center' }}>
           <span className="faint" style={{ fontSize: 12, marginRight: 2 }}>Radius:</span>
-          {[5, 10, 15, 20].map((r) => (
+          {[5, 10, 20].map((r) => (
             <button
               key={r}
               className={`btn sm ${radiusKm === r ? 'primary' : ''}`}
@@ -383,6 +408,24 @@ export default function NearbyShopsMap({ locations = [], currentShop, currentPro
               {r} km
             </button>
           ))}
+          <button
+            className={`btn sm ${radiusKm === 'all' ? 'primary' : ''}`}
+            style={{ padding: '2px 8px', fontSize: 11.5, minWidth: 42 }}
+            onClick={() => {
+              setRadiusKm('all')
+              setTimeout(fitAllShops, 100)
+            }}
+          >
+            All Network
+          </button>
+          <button
+            className="btn ghost sm"
+            style={{ padding: '2px 8px', fontSize: 11.5 }}
+            onClick={fitAllShops}
+            title="Locate all partner shops on the map"
+          >
+            📍 Locate All
+          </button>
         </div>
       </div>
 

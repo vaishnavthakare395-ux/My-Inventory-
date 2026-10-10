@@ -4,7 +4,6 @@ import { useWorkspace } from '../lib/WorkspaceContext'
 import { useAlerts } from '../lib/AlertsContext'
 import { stockByLocation } from '../lib/api'
 import NearbyShopsMap from '../components/NearbyShopsMap'
-import AssociatedShopsList from '../components/AssociatedShopsList'
 
 export default function Dashboard() {
   const { profile, locations, myLocationIds } = useAuth()
@@ -46,8 +45,6 @@ export default function Dashboard() {
         </div>
         <NearbyShopsMap locations={locations} currentShop={activeLocation} currentProfile={profile} />
       </div>
-
-      <AssociatedShopsList locations={locations} currentShop={activeLocation} currentProfile={profile} />
     </div>
   )
 }
