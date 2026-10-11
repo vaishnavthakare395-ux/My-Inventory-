@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { useAuth } from '../lib/AuthContext'
 import { useToast } from '../lib/ToastContext'
-import { ROLE_LABELS } from '../lib/constants'
+import { ROLE_LABELS, SUBSCRIPTION_PLANS } from '../lib/constants'
 
 export default function Settings() {
   const { profile, role, user, myLocations, isAdmin, changePassword } = useAuth()
@@ -10,6 +10,47 @@ export default function Settings() {
   const [pw, setPw] = useState('')
   const [pw2, setPw2] = useState('')
   const [busy, setBusy] = useState(false)
+
+  const subInfo = useMemo(() => {
+    if (isAdmin) {
+      return {
+        code: 'SUB-ADMIN-LIFETIME',
+        duration: 'Lifetime Platform Access',
+        startDate: 'Permanent',
+        endDate: 'Never Expires',
+        badge: <span className="badge good">Active (Enterprise Admin)</span>,
+      }
+    }
+
+    const loc = myLocations[0] || {}
+    const planCode = profile?.subscriptionDuration || loc.subscriptionDuration || '1_month'
+    const planObj = SUBSCRIPTION_PLANS.find((p) => p.id === planCode) || SUBSCRIPTION_PLANS[0]
+
+    // Formatter
+    const formatDate = (val) => {
+      if (!val) return null
+      const d = val.toDate ? val.toDate() : new Date(val)
+      return isNaN(d.getTime()) ? null : d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+    }
+
+    const startRaw = profile?.subscriptionStartDate || loc.subscriptionStartDate || profile?.createdAt || loc.createdAt
+    const startStr = formatDate(startRaw) || '01 Oct 2026'
+
+    let endStr = formatDate(profile?.subscriptionEndDate || loc.subscriptionEndDate)
+    if (!endStr) {
+      const d = startRaw ? (startRaw.toDate ? startRaw.toDate() : new Date(startRaw)) : new Date()
+      d.setMonth(d.getMonth() + planObj.months)
+      endStr = d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' })
+    }
+
+    return {
+      code: `SUB-${planCode.toUpperCase()}`,
+      duration: `${planObj.label} (${planObj.months} month${planObj.months > 1 ? 's' : ''})`,
+      startDate: startStr,
+      endDate: endStr,
+      badge: <span className="badge good">Active</span>,
+    }
+  }, [profile, myLocations, isAdmin])
 
   const savePw = async () => {
     if (pw.length < 6) return toast.err('Password must be at least 6 characters.')
@@ -37,6 +78,17 @@ export default function Settings() {
             <Row k="Email" v={user?.email} />
             <Row k="Role" v={ROLE_LABELS[role] || role} />
             <Row k="Warehouses" v={isAdmin ? 'All locations' : myLocations.map((l) => l.name).join(', ') || '—'} />
+          </div>
+        </div>
+
+        <div className="card">
+          <h3>Subscription &amp; Validity</h3>
+          <div className="set-rows" style={{ marginTop: 12 }}>
+            <Row k="Plan Code" v={<span className="mono" style={{ fontWeight: 600, color: 'var(--accent, #6366f1)' }}>{subInfo.code}</span>} />
+            <Row k="Plan Duration" v={subInfo.duration} />
+            <Row k="Starting Date" v={subInfo.startDate} />
+            <Row k="Ending Date" v={subInfo.endDate} />
+            <Row k="Subscription Status" v={subInfo.badge} />
           </div>
         </div>
 
