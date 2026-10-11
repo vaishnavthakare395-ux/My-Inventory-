@@ -1457,25 +1457,15 @@ export async function searchEmergencyStock({ queryText = '', userLocationId, cur
 
     let otherBatches = allBatches.filter((b) => Number(b.qty) > 0 && !isOwnBatch(b))
 
-    // 4. If no batches exist for other partner shops, seed sample batches
-    if (!otherBatches.length && otherLocations.length > 0) {
-      try {
-        const seeded = await seedPartnerEmergencyStock(otherLocations)
-        otherBatches = seeded.filter((b) => Number(b.qty) > 0 && !isOwnBatch(b))
-      } catch (seedErr) {
-        console.warn('Could not auto-seed partner emergency stock:', seedErr)
-      }
-    }
-
     if (!otherBatches.length) return []
 
-    // 5. Fetch products metadata
+    // 4. Fetch products metadata
     const skus = [...new Set(otherBatches.map((b) => b.sku))]
     const products = await getProductsBySkus(skus)
     const productMap = Object.fromEntries(products.map((p) => [p.sku, p]))
 
-    // 6. Enrich and filter
-    const results = []
+    // 5. Enrich batches
+    const rawResults = []
     for (const b of otherBatches) {
       let loc =
         locMap[b.locationId] ||
@@ -1515,7 +1505,7 @@ export async function searchEmergencyStock({ queryText = '', userLocationId, cur
         emergencyPrice = Math.floor((buyingPrice + normalProfit * 0.5) * 100) / 100
       }
 
-      results.push({
+      rawResults.push({
         id: b.id,
         batchId: b.id,
         sku: b.sku,
@@ -1529,7 +1519,7 @@ export async function searchEmergencyStock({ queryText = '', userLocationId, cur
         category,
         unit: b.unit || prod.unit || 'units',
         barcode: b.barcode || prod.barcode || '',
-        sellerLocationId: b.locationId,
+        sellerLocationId: loc.id || b.locationId,
         sellerShopName: loc.shopName || loc.name || 'Partner Shop',
         sellerAddress: loc.address || loc.verifiedAddress || '',
         sellerPhone: loc.phone || loc.ownerPhone || '',
@@ -1538,7 +1528,28 @@ export async function searchEmergencyStock({ queryText = '', userLocationId, cur
       })
     }
 
-    return results
+    // 6. Deduplicate per SKU per Seller Shop:
+    // If a shop has multiple batches for the same SKU, consolidate them into a single entry
+    // showing total combined available quantity and the best (lowest) emergency price.
+    const grouped = new Map()
+    for (const item of rawResults) {
+      const key = `${item.sellerShopName}_${item.sku}`.toLowerCase()
+      if (!grouped.has(key)) {
+        grouped.set(key, { ...item })
+      } else {
+        const existing = grouped.get(key)
+        existing.qty += item.qty
+        // Pick the lowest emergency price among batches
+        if (item.emergencyPrice < existing.emergencyPrice) {
+          existing.emergencyPrice = item.emergencyPrice
+          existing.batchId = item.batchId
+          existing.batchNo = item.batchNo
+          existing.expiryDate = item.expiryDate
+        }
+      }
+    }
+
+    return Array.from(grouped.values())
   } catch (err) {
     console.warn('searchEmergencyStock error:', err)
     return []
