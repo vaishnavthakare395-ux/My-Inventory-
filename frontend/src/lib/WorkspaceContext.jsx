@@ -20,7 +20,7 @@ export function WorkspaceProvider({ children }) {
     // If the user has a specific assigned shop, ensure their active location defaults to their shop
     if (userShopId && (myLocations.some((l) => l.id === userShopId) || locations.some((l) => l.id === userShopId))) {
       const stored = localStorage.getItem(userKey)
-      if (!stored || (stored !== userShopId && !myLocations.some((l) => l.id === stored))) {
+      if (!stored || !myLocations.some((l) => l.id === stored)) {
         setActiveLocationId(userShopId)
         localStorage.setItem(userKey, userShopId)
         return

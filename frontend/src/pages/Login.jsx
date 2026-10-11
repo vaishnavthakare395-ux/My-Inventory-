@@ -157,7 +157,7 @@ export default function Login() {
             </div>
             <div className="la-metric-sep" />
             <div className="la-metric-col">
-              <span className="la-metric-val">&lt; 75%</span>
+              <span className="la-metric-val">&lt; 60%</span>
               <span className="la-metric-lbl">Partner Profit Cap</span>
             </div>
             <div className="la-metric-sep" />
