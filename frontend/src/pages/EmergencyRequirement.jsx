@@ -50,6 +50,8 @@ export default function EmergencyRequirement() {
   // Search & Filter State
   const [queryText, setQueryText] = useState('')
   const [maxDistance, setMaxDistance] = useState(0) // Default to 0 (All partner shops across network)
+  const [selectedCategory, setSelectedCategory] = useState('ALL')
+  const [selectedShopType, setSelectedShopType] = useState('ALL')
   const [results, setResults] = useState([])
   const [loading, setLoading] = useState(false)
 
@@ -131,7 +133,18 @@ export default function EmergencyRequirement() {
     }
   }, [activeTab, activeLocation?.id, profile?.shopLocationId, user?.uid, authLoading])
 
-  // Filter and sort search results by proximity
+  // Available categories & shop types in the current results
+  const availableCategories = useMemo(() => {
+    const set = new Set(results.map((r) => r.category).filter(Boolean))
+    return ['ALL', ...Array.from(set).sort()]
+  }, [results])
+
+  const availableShopTypes = useMemo(() => {
+    const set = new Set(results.map((r) => r.sellerShopType).filter(Boolean))
+    return ['ALL', ...Array.from(set).sort()]
+  }, [results])
+
+  // Filter and sort search results by proximity, category, and shop type
   const filteredResults = useMemo(() => {
     return results
       .map((item) => {
@@ -148,9 +161,16 @@ export default function EmergencyRequirement() {
         return { ...item, distanceKm: dist }
       })
       .filter((item) => {
-        if (maxDistance === 0) return true // all distances
-        if (item.distanceKm === null) return true
-        return item.distanceKm <= maxDistance
+        if (maxDistance > 0 && item.distanceKm !== null && item.distanceKm > maxDistance) {
+          return false
+        }
+        if (selectedCategory !== 'ALL' && item.category !== selectedCategory) {
+          return false
+        }
+        if (selectedShopType !== 'ALL' && item.sellerShopType !== selectedShopType) {
+          return false
+        }
+        return true
       })
       .sort((a, b) => {
         if (a.distanceKm === null && b.distanceKm === null) return 0
@@ -158,7 +178,7 @@ export default function EmergencyRequirement() {
         if (b.distanceKm === null) return -1
         return a.distanceKm - b.distanceKm
       })
-  }, [results, currentCoords, maxDistance])
+  }, [results, currentCoords, maxDistance, selectedCategory, selectedShopType])
 
   // Split orders into outgoing and incoming
   const outgoingOrders = useMemo(() => {
@@ -399,31 +419,53 @@ export default function EmergencyRequirement() {
                 />
               </div>
 
-              {/* Proximity Filter */}
-              <div className="row" style={{ gap: 6, alignItems: 'center' }}>
-                <span className="faint" style={{ fontSize: 12 }}>Distance:</span>
-                {[
-                  { label: 'All Shops', val: 0 },
-                  { label: '≤ 10 km', val: 10 },
-                  { label: '≤ 25 km', val: 25 },
-                  { label: '≤ 50 km', val: 50 },
-                ].map((d) => (
-                  <button
-                    key={d.val}
-                    className={`btn sm ${maxDistance === d.val ? 'primary' : ''}`}
-                    onClick={() => setMaxDistance(d.val)}
-                    style={{ padding: '3px 8px', fontSize: 11.5 }}
+              {/* Filters */}
+              <div className="row wrap" style={{ gap: 10, alignItems: 'center' }}>
+                {/* Category Filter */}
+                <div className="row" style={{ gap: 5, alignItems: 'center' }}>
+                  <span className="faint" style={{ fontSize: 12 }}>Category:</span>
+                  <select
+                    className="select sm"
+                    value={selectedCategory}
+                    onChange={(e) => setSelectedCategory(e.target.value)}
+                    style={{ fontSize: 12, padding: '3px 8px', maxWidth: 170 }}
                   >
-                    {d.label}
-                  </button>
-                ))}
+                    <option value="ALL">All Categories</option>
+                    {availableCategories.filter((c) => c !== 'ALL').map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {/* Proximity Filter */}
+                <div className="row" style={{ gap: 5, alignItems: 'center' }}>
+                  <span className="faint" style={{ fontSize: 12 }}>Distance:</span>
+                  {[
+                    { label: 'All Shops', val: 0 },
+                    { label: '≤ 10 km', val: 10 },
+                    { label: '≤ 25 km', val: 25 },
+                    { label: '≤ 50 km', val: 50 },
+                  ].map((d) => (
+                    <button
+                      key={d.val}
+                      className={`btn sm ${maxDistance === d.val ? 'primary' : ''}`}
+                      onClick={() => setMaxDistance(d.val)}
+                      style={{ padding: '3px 8px', fontSize: 11.5 }}
+                    >
+                      {d.label}
+                    </button>
+                  ))}
+                </div>
+
                 {/* Refresh Stock Button */}
                 <button
                   className="btn sm"
                   onClick={loadSearch}
                   disabled={loading}
                   title="Refresh Emergency Network Stock"
-                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', fontSize: 12, fontWeight: 600, marginLeft: 6 }}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', fontSize: 12, fontWeight: 600, marginLeft: 2 }}
                 >
                   <span style={{ display: 'inline-block', transform: loading ? 'rotate(180deg)' : 'none', transition: 'transform 0.3s' }}>🔄</span>
                   {loading ? 'Refreshing…' : 'Refresh'}
