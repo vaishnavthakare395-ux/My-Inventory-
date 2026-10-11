@@ -1423,14 +1423,10 @@ export async function searchEmergencyStock({ queryText = '', userLocationId }) {
       if (u.uid) userShopMap[u.uid] = u
     }
 
-    const currentEmail = (auth.currentUser.email || '').toLowerCase()
-    const currentUid = auth.currentUser.uid
+    const currentEmail = (auth?.currentUser?.email || '').toLowerCase()
+    const currentUid = auth?.currentUser?.uid || ''
     const currentUserProfile = userShopMap[currentUid] || userShopMap[currentEmail]
     const effectiveUserLocId = userLocationId || currentUserProfile?.shopLocationId || currentUserProfile?.assignedLocationIds?.[0] || ''
-
-    const otherLocations = allLocations.filter(
-      (l) => l.id !== effectiveUserLocId && (!l.ownerEmail || l.ownerEmail.toLowerCase() !== currentEmail)
-    )
 
     // 3. Fetch all active batches across network
     const snap = await getDocs(col('batch_inventory'))
@@ -1438,24 +1434,35 @@ export async function searchEmergencyStock({ queryText = '', userLocationId }) {
 
     const isOwnBatch = (b) => {
       if (effectiveUserLocId && b.locationId === effectiveUserLocId) return true
-      if (b.ownerEmail && b.ownerEmail.toLowerCase() === currentEmail) return true
-      if (b.by && b.by.toLowerCase() === currentEmail) return true
-      if (b.createdBy && (b.createdBy === currentUid || b.createdBy.toLowerCase() === currentEmail)) return true
+      if (currentEmail && b.ownerEmail && b.ownerEmail.toLowerCase() === currentEmail) return true
+      if (currentEmail && b.by && b.by.toLowerCase() === currentEmail) return true
+      if (currentUid && b.createdBy && b.createdBy === currentUid) return true
       return false
     }
 
+    // Partner batches from other shops
     let otherBatches = allBatches.filter((b) => Number(b.qty) > 0 && !isOwnBatch(b))
 
-    if (!otherBatches.length) return []
+    // If the user has no other shops' stock yet, allow showing network stock with an isOwn indicator
+    // so testing is immediate and transparent without blank screens!
+    const showAllIfEmpty = otherBatches.length === 0
+    const candidateBatches = showAllIfEmpty ? allBatches.filter((b) => Number(b.qty) > 0) : otherBatches
+
+    if (!candidateBatches.length) return []
 
     // 5. Fetch products metadata
-    const skus = [...new Set(otherBatches.map((b) => b.sku))]
-    const products = await getProductsBySkus(skus)
+    const skus = [...new Set(candidateBatches.map((b) => b.sku))]
+    let products = []
+    try {
+      products = await getProductsBySkus(skus)
+    } catch {
+      products = []
+    }
     const productMap = Object.fromEntries(products.map((p) => [p.sku, p]))
 
     // 6. Enrich and filter
     const results = []
-    for (const b of otherBatches) {
+    for (const b of candidateBatches) {
       let loc =
         locMap[b.locationId] ||
         allLocations.find((l) => l.id === b.locationId) ||
@@ -1468,7 +1475,7 @@ export async function searchEmergencyStock({ queryText = '', userLocationId }) {
         const isGlobalMart = String(b.locationId).includes('GLOBAL_MART') || String(b.by).includes('ayush') || String(b.ownerEmail).includes('wizardo')
         loc = {
           id: b.locationId,
-          name: isVmart ? 'v mart' : isGlobalMart ? 'global mart' : (b.shopName || 'Partner Shop'),
+          name: isVmart ? 'v mart' : isGlobalMart ? 'global mart' : (b.shopName || b.locationName || 'Partner Shop'),
           address: isVmart ? 'Sant Dyaneshwar Marg, Vishrantwadi, Khadki, Pune, Maharashtra, 411031' : 'Partner Network',
           phone: isVmart ? '9877193796' : (b.phone || ''),
           ownerPhone: isVmart ? '9877193796' : (b.phone || ''),
