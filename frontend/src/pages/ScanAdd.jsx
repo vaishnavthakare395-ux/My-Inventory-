@@ -285,7 +285,7 @@ export default function ScanAdd() {
       <div className="grid cols-3" style={{ marginTop: 16, gap: 14 }}>
         {/* Step 1: Product Identification */}
         <div className="card">
-          <h3><span className="step-n">1</span> Find Product</h3>
+          <h3><span className="step-n">1</span> Add Product</h3>
           <div className="field" style={{ marginTop: 12 }}>
             <label>Type SKU / Barcode + Enter</label>
             <input
