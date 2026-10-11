@@ -64,7 +64,6 @@ const ROUTES = [
   { path: '/cashier/scan', title: 'Scan & Add', allow: [ROLES.USER], El: ScanAdd },
   { path: '/cashier/expiring', title: 'Near Expiry', allow: [ROLES.USER], El: NearExpiry },
   { path: '/cashier/emergency', title: 'Emergency Stock', allow: [ROLES.USER], El: EmergencyRequirement },
-  { path: '/cashier/returns', title: 'Returns', allow: [ROLES.USER], El: Returns },
   { path: '/cashier/analysis', title: 'Sales Analysis', allow: [ROLES.USER], El: SalesAnalysis },
   { path: '/cashier/settings', title: 'Settings', allow: [ROLES.USER], El: Settings },
 ]
@@ -170,7 +169,7 @@ export default function App() {
               <Route path="/scan" element={<Navigate to={role === 'user' ? '/cashier/scan' : '/manager/scan'} replace />} />
               <Route path="/expiring" element={<Navigate to={role === 'user' ? '/cashier/expiring' : '/manager/expiring'} replace />} />
               <Route path="/emergency-requirement" element={<Navigate to={role === 'user' ? '/cashier/emergency' : '/manager/emergency'} replace />} />
-              <Route path="/returns" element={<Navigate to={role === 'user' ? '/cashier/returns' : '/manager/returns'} replace />} />
+              <Route path="/returns" element={<Navigate to={role === 'user' ? homePath : '/manager/returns'} replace />} />
               <Route path="/onboarding" element={<Navigate to={role === 'admin' ? '/admin/onboarding' : homePath} replace />} />
               <Route path="/shop-onboard" element={<Navigate to={role === 'admin' ? '/admin/onboarding' : homePath} replace />} />
               <Route path="/settings" element={<Navigate to={role === 'admin' ? '/admin/settings' : role === 'user' ? '/cashier/settings' : '/manager/settings'} replace />} />
