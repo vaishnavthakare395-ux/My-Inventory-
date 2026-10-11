@@ -66,14 +66,26 @@ export default function EmergencyRequirement() {
   // Action busy tracking
   const [actionBusyId, setActionBusyId] = useState(null)
 
+  // Effective active location with solid profile/locations fallback
+  const effectiveLocation = useMemo(() => {
+    if (activeLocation) return activeLocation
+    const shopId = profile?.shopLocationId || profile?.assignedLocationIds?.[0]
+    return {
+      id: shopId || 'SHOP_DEFAULT',
+      name: profile?.shopName || 'Your Shop',
+      phone: profile?.phone || '',
+      address: profile?.address || '',
+    }
+  }, [activeLocation, profile])
+
   // Current shop coordinates for distance sorting
   const currentCoords = useMemo(() => {
-    const fromShop = extractCoords(activeLocation)
+    const fromShop = extractCoords(effectiveLocation)
     if (fromShop) return fromShop
     const fromProfile = extractCoords(profile)
     if (fromProfile) return fromProfile
     return { lat: 18.6280, lon: 73.8710 } // default coordinate fallback
-  }, [activeLocation, profile])
+  }, [effectiveLocation, profile])
 
   // Load available emergency stock from other associated shops
   const loadSearch = async () => {
@@ -81,7 +93,7 @@ export default function EmergencyRequirement() {
     try {
       const data = await searchEmergencyStock({
         queryText,
-        userLocationId: activeLocation?.id || profile?.shopLocationId || '',
+        userLocationId: effectiveLocation?.id || '',
       })
       setResults(Array.isArray(data) ? data : [])
     } catch (err) {
@@ -94,7 +106,7 @@ export default function EmergencyRequirement() {
 
   // Load emergency orders involving this shop
   const loadOrders = async () => {
-    const locId = activeLocation?.id || profile?.shopLocationId
+    const locId = effectiveLocation?.id
     if (!locId) {
       setOrders([])
       return
@@ -117,7 +129,7 @@ export default function EmergencyRequirement() {
     } else {
       loadOrders()
     }
-  }, [activeTab, queryText, activeLocation?.id, profile?.shopLocationId])
+  }, [activeTab, queryText, effectiveLocation?.id])
 
   // Filter and sort search results by distance
   const filteredResults = useMemo(() => {
@@ -145,15 +157,15 @@ export default function EmergencyRequirement() {
 
   // Incoming requests (Other shops wanting to buy from me at emergency price)
   const incomingOrders = useMemo(() => {
-    const locId = activeLocation?.id || profile?.shopLocationId
+    const locId = effectiveLocation?.id
     return orders.filter((o) => o.sellerLocationId === locId)
-  }, [orders, activeLocation?.id, profile?.shopLocationId])
+  }, [orders, effectiveLocation?.id])
 
   // Outgoing requests (Requests I sent to buy from other shops at emergency price)
   const outgoingOrders = useMemo(() => {
-    const locId = activeLocation?.id || profile?.shopLocationId
+    const locId = effectiveLocation?.id
     return orders.filter((o) => o.buyerLocationId === locId)
-  }, [orders, activeLocation?.id, profile?.shopLocationId])
+  }, [orders, effectiveLocation?.id])
 
   const pendingIncomingCount = useMemo(() => {
     return incomingOrders.filter((o) => o.status === 'requested').length
@@ -161,7 +173,8 @@ export default function EmergencyRequirement() {
 
   // Buyer submits purchase request
   const handlePurchase = async () => {
-    if (!selectedItem || !activeLocation) return
+    if (!selectedItem) return
+    const loc = effectiveLocation
     const qty = parseInt(purchaseQty, 10)
     if (!(qty > 0) || qty > selectedItem.qty) {
       return toast.err(`Please enter a quantity between 1 and ${selectedItem.qty}.`)
@@ -170,10 +183,10 @@ export default function EmergencyRequirement() {
     setBuyingBusy(true)
     try {
       const orderId = await createEmergencyOrder({
-        buyerLocationId: activeLocation.id,
-        buyerShopName: activeLocation.name || 'Partner Store',
+        buyerLocationId: loc.id,
+        buyerShopName: loc.name || 'Partner Store',
         buyerEmail: profile?.email || '',
-        buyerPhone: activeLocation.phone || profile?.phone || '',
+        buyerPhone: loc.phone || profile?.phone || '',
         sellerLocationId: selectedItem.sellerLocationId,
         sellerShopName: selectedItem.sellerShopName,
         sellerEmail: selectedItem.sellerEmail || '',
@@ -216,9 +229,7 @@ export default function EmergencyRequirement() {
 
   // Seller accepts incoming request and deducts stock from inventory
   const handleAcceptOrder = async (order) => {
-    if (!order || !activeLocation) return
-    if (!window.confirm(`Accept emergency request for ${order.qty} units of ${order.productName} and deduct from your store inventory?`)) return
-
+    if (!order) return
     setActionBusyId(order.id)
     try {
       await acceptEmergencyOrder({
@@ -239,8 +250,7 @@ export default function EmergencyRequirement() {
   // Seller declines request
   const handleRejectOrder = async (order) => {
     if (!order) return
-    const reason = window.prompt('Reason for declining this request (optional):', 'Out of stock / reserved for walk-in customer')
-    if (reason === null) return
+    const reason = 'Out of stock / reserved for walk-in customer'
 
     setActionBusyId(order.id)
     try {
@@ -261,8 +271,8 @@ export default function EmergencyRequirement() {
 
   // Buyer confirms receipt into own store inventory
   const handleReceiveStock = async (order) => {
-    if (!order || !activeLocation) return
-    if (!window.confirm(`Confirm receipt of ${order.qty} units of ${order.productName} into ${activeLocation.name}? Stock will be added to your shop inventory.`)) return
+    if (!order) return
+    const loc = effectiveLocation
 
     setActionBusyId(order.id)
     try {
@@ -270,7 +280,7 @@ export default function EmergencyRequirement() {
         orderId: order.id,
         buyerEmail: profile?.email || '',
       })
-      toast.ok(`Stock received! ${order.qty} units added to your inventory.`)
+      toast.ok(`Stock received! ${order.qty} units added to ${loc.name} inventory.`)
       loadOrders()
     } catch (err) {
       console.error('Error receiving emergency order:', err)
