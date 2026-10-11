@@ -1403,8 +1403,9 @@ export async function seedPartnerEmergencyStock(partnerLocations = []) {
   return seededBatches
 }
 
-export async function searchEmergencyStock({ queryText = '', userLocationId }) {
-  if (!auth.currentUser) return []
+export async function searchEmergencyStock({ queryText = '', userLocationId, currentUser }) {
+  const activeUser = currentUser || auth.currentUser
+  if (!activeUser) return []
   const cleanQ = queryText.trim().toLowerCase()
 
   try {
@@ -1423,46 +1424,59 @@ export async function searchEmergencyStock({ queryText = '', userLocationId }) {
       if (u.uid) userShopMap[u.uid] = u
     }
 
-    const currentEmail = (auth?.currentUser?.email || '').toLowerCase()
-    const currentUid = auth?.currentUser?.uid || ''
+    const currentEmail = (activeUser.email || '').toLowerCase()
+    const currentUid = activeUser.uid
     const currentUserProfile = userShopMap[currentUid] || userShopMap[currentEmail]
     const effectiveUserLocId = userLocationId || currentUserProfile?.shopLocationId || currentUserProfile?.assignedLocationIds?.[0] || ''
+
+    // Collect all location IDs owned by the current user to prevent self-matching
+    const myOwnedLocationIds = new Set(
+      allLocations
+        .filter((l) => (l.ownerEmail && l.ownerEmail.toLowerCase() === currentEmail) || l.id === effectiveUserLocId)
+        .map((l) => l.id)
+    )
+    if (effectiveUserLocId) myOwnedLocationIds.add(effectiveUserLocId)
+    if (currentUserProfile?.shopLocationId) myOwnedLocationIds.add(currentUserProfile.shopLocationId)
+    for (const id of currentUserProfile?.assignedLocationIds || []) myOwnedLocationIds.add(id)
+
+    const otherLocations = allLocations.filter(
+      (l) => !myOwnedLocationIds.has(l.id) && (!l.ownerEmail || l.ownerEmail.toLowerCase() !== currentEmail)
+    )
 
     // 3. Fetch all active batches across network
     const snap = await getDocs(col('batch_inventory'))
     const allBatches = snapToRows(snap)
 
     const isOwnBatch = (b) => {
-      if (effectiveUserLocId && b.locationId === effectiveUserLocId) return true
-      if (currentEmail && b.ownerEmail && b.ownerEmail.toLowerCase() === currentEmail) return true
-      if (currentEmail && b.by && b.by.toLowerCase() === currentEmail) return true
-      if (currentUid && b.createdBy && b.createdBy === currentUid) return true
+      if (b.locationId && myOwnedLocationIds.has(b.locationId)) return true
+      if (b.ownerEmail && b.ownerEmail.toLowerCase() === currentEmail) return true
+      if (b.by && b.by.toLowerCase() === currentEmail) return true
+      if (b.createdBy && (b.createdBy === currentUid || b.createdBy.toLowerCase() === currentEmail)) return true
       return false
     }
 
-    // Partner batches from other shops
     let otherBatches = allBatches.filter((b) => Number(b.qty) > 0 && !isOwnBatch(b))
 
-    // If the user has no other shops' stock yet, allow showing network stock with an isOwn indicator
-    // so testing is immediate and transparent without blank screens!
-    const showAllIfEmpty = otherBatches.length === 0
-    const candidateBatches = showAllIfEmpty ? allBatches.filter((b) => Number(b.qty) > 0) : otherBatches
+    // 4. If no batches exist for other partner shops, seed sample batches
+    if (!otherBatches.length && otherLocations.length > 0) {
+      try {
+        const seeded = await seedPartnerEmergencyStock(otherLocations)
+        otherBatches = seeded.filter((b) => Number(b.qty) > 0 && !isOwnBatch(b))
+      } catch (seedErr) {
+        console.warn('Could not auto-seed partner emergency stock:', seedErr)
+      }
+    }
 
-    if (!candidateBatches.length) return []
+    if (!otherBatches.length) return []
 
     // 5. Fetch products metadata
-    const skus = [...new Set(candidateBatches.map((b) => b.sku))]
-    let products = []
-    try {
-      products = await getProductsBySkus(skus)
-    } catch {
-      products = []
-    }
+    const skus = [...new Set(otherBatches.map((b) => b.sku))]
+    const products = await getProductsBySkus(skus)
     const productMap = Object.fromEntries(products.map((p) => [p.sku, p]))
 
     // 6. Enrich and filter
     const results = []
-    for (const b of candidateBatches) {
+    for (const b of otherBatches) {
       let loc =
         locMap[b.locationId] ||
         allLocations.find((l) => l.id === b.locationId) ||
@@ -1475,7 +1489,7 @@ export async function searchEmergencyStock({ queryText = '', userLocationId }) {
         const isGlobalMart = String(b.locationId).includes('GLOBAL_MART') || String(b.by).includes('ayush') || String(b.ownerEmail).includes('wizardo')
         loc = {
           id: b.locationId,
-          name: isVmart ? 'v mart' : isGlobalMart ? 'global mart' : (b.shopName || b.locationName || 'Partner Shop'),
+          name: isVmart ? 'v mart' : isGlobalMart ? 'global mart' : (b.shopName || 'Partner Shop'),
           address: isVmart ? 'Sant Dyaneshwar Marg, Vishrantwadi, Khadki, Pune, Maharashtra, 411031' : 'Partner Network',
           phone: isVmart ? '9877193796' : (b.phone || ''),
           ownerPhone: isVmart ? '9877193796' : (b.phone || ''),
@@ -1517,7 +1531,6 @@ export async function searchEmergencyStock({ queryText = '', userLocationId }) {
         barcode: b.barcode || prod.barcode || '',
         sellerLocationId: b.locationId,
         sellerShopName: loc.shopName || loc.name || 'Partner Shop',
-        sellerOwnerName: loc.ownerName || loc.registeredName || loc.name || 'Store Owner',
         sellerAddress: loc.address || loc.verifiedAddress || '',
         sellerPhone: loc.phone || loc.ownerPhone || '',
         sellerCoordinates: loc.coordinates || (loc.lat && loc.lng ? { lat: loc.lat, lon: loc.lng } : null),
@@ -1719,8 +1732,9 @@ export async function receiveEmergencyOrder({
   })
 }
 
-export async function listEmergencyOrders(locationId) {
-  if (!locationId || !auth.currentUser) return []
+export async function listEmergencyOrders(locationId, currentUser) {
+  const activeUser = currentUser || auth.currentUser
+  if (!locationId || !activeUser) return []
   try {
     const [buyerSnap, sellerSnap] = await Promise.all([
       getDocs(query(col('emergency_orders'), where('buyerLocationId', '==', locationId))),
