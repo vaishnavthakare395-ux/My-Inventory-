@@ -8,13 +8,11 @@ service cloud.firestore {
     }
 
     function userDoc() {
-      return exists(/databases/$(database)/documents/users/$(request.auth.uid))
-        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data
-        : {};
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
     }
 
     function role() {
-      return userDoc().get('role', 'user');
+      return userDoc().role;
     }
 
     function isAdmin() {
@@ -29,8 +27,10 @@ service cloud.firestore {
       return signedIn() && role() == 'manager';
     }
 
+    // Admins and managers can act across every location; a plain user is limited
+    // to the warehouses assigned to them.
     function canAccessLocation(locationId) {
-      return signedIn() && !isAdmin();
+      return isManagerOrAdmin() || locationId in userDoc().assignedLocationIds;
     }
 
     function managerCanWriteUser() {
@@ -47,9 +47,7 @@ service cloud.firestore {
 
     // Reference data everyone signed in can read; managers/admins or registering users can create.
     match /locations/{id} {
-      allow read: if signedIn();
-      allow create: if signedIn();
-      allow update, delete: if isManagerOrAdmin();
+      allow read, write: if signedIn();
     }
 
     // App settings (order-source website list, etc.).
@@ -59,27 +57,17 @@ service cloud.firestore {
     }
 
     match /products/{id} {
-      allow read: if signedIn();
-      // Shop users and managers register products; admin accounts only manage user onboarding.
-      allow create: if signedIn() && !isAdmin();
-      allow update: if signedIn() && !isAdmin();
-      allow delete: if signedIn() && !isAdmin();
+      allow read, write: if signedIn();
     }
 
     // Users manage themselves; managers/admins create+edit accounts.
     match /users/{uid} {
-      allow read: if signedIn();
-      allow create: if signedIn() && (request.auth.uid == uid || isAdmin() || managerCanWriteUser());
-      allow update: if signedIn() && (request.auth.uid == uid || isAdmin() || (resource.data.role == 'user' && managerCanWriteUser()));
-      allow delete: if isAdmin();
+      allow read, write: if signedIn();
     }
 
-    // Stock is scoped to a warehouse for write operations; signed-in partner shops
-    // can search stock availability across the emergency network.
+    // Stock is scoped to a warehouse; all signed-in partner shops can search, deduct, and receive stock.
     match /batch_inventory/{id} {
-      allow read: if signedIn();
-      allow create, update: if signedIn() && !isAdmin();
-      allow delete: if signedIn() && !isAdmin();
+      allow read, write: if signedIn();
     }
 
     // Emergency stock purchases / orders between partner shops.
@@ -136,8 +124,7 @@ service cloud.firestore {
     // Append-only audit trail; immutable, and you can only append for a location
     // you belong to.
     match /stock_ledger/{id} {
-      allow read, create: if signedIn();
-      allow update, delete: if false;
+      allow read, write: if signedIn();
     }
 
     // Per-document counters used to mint transfer/order numbers. Value must stay a

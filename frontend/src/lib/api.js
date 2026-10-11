@@ -1510,6 +1510,7 @@ export async function searchEmergencyStock({ queryText = '', userLocationId }) {
         barcode: b.barcode || prod.barcode || '',
         sellerLocationId: b.locationId,
         sellerShopName: loc.shopName || loc.name || 'Partner Shop',
+        sellerOwnerName: loc.ownerName || loc.registeredName || loc.name || 'Store Owner',
         sellerAddress: loc.address || loc.verifiedAddress || '',
         sellerPhone: loc.phone || loc.ownerPhone || '',
         sellerCoordinates: loc.coordinates || (loc.lat && loc.lng ? { lat: loc.lat, lon: loc.lng } : null),
